@@ -1740,7 +1740,7 @@ button {
 }
 .wrong-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: 1fr;
   gap: 15px;
 }
 .wrong-filters {
@@ -1801,6 +1801,23 @@ button {
     serif;
   line-height: 1.6;
 }
+.source-ref {
+  margin: -5px 0 12px;
+  color: #76827d;
+  font-size: 9px;
+}
+.imported-options {
+  margin: 0 0 14px;
+  padding: 12px 12px 12px 34px;
+  background: #f7f9f8;
+  border: 1px solid #e5ebe8;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 1.65;
+}
+.imported-options li + li {
+  margin-top: 3px;
+}
 .compare {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1826,6 +1843,31 @@ button {
   font-size: 9px;
   color: #68756f;
   line-height: 1.6;
+  white-space: pre-line;
+}
+.wrong-details {
+  margin: 12px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+  font-size: 9px;
+  color: #68756f;
+}
+.wrong-details summary {
+  color: var(--green);
+  font-weight: 750;
+  cursor: pointer;
+}
+.wrong-details section {
+  margin-top: 12px;
+}
+.wrong-details section b {
+  color: #34463e;
+}
+.wrong-details section p {
+  margin: 4px 0 0;
+  line-height: 1.65;
+  white-space: pre-line;
 }
 .wrong-real label {
   font-size: 9px;

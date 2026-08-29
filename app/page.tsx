@@ -20,6 +20,7 @@ import {
   TrendingUp,
   Volume2,
 } from 'lucide-react';
+import importedWrongQuestions from '@/lib/imported-wrongs.json';
 
 type Module = '文字・語彙' | '文法' | '読解' | '聴解';
 type Question = {
@@ -32,6 +33,14 @@ type Question = {
   answer: number;
   explain: string;
   targetSec: number;
+  answerText?: string;
+  answerRaw?: string;
+  distractorExplain?: string;
+  expansion?: string;
+  translation?: string;
+  source?: string;
+  sourceQuestion?: string;
+  frequency?: number;
 };
 type Wrong = {
   id: number;
@@ -46,7 +55,7 @@ type Attempt = {
   seconds: number;
   correct: boolean;
 };
-const questions: Question[] = [
+const practiceQuestions: Question[] = [
   {
     id: 1,
     module: '文字・語彙',
@@ -158,6 +167,16 @@ const questions: Question[] = [
     targetSec: 35,
   },
 ];
+const questions: Question[] = [
+  ...practiceQuestions,
+  ...(importedWrongQuestions as unknown as Question[]).map((question) => ({
+    ...question,
+    prompt: question.prompt || question.options[0],
+    options: question.prompt ? question.options : question.options.slice(1),
+    answer: question.prompt ? question.answer : Math.max(0, question.answer - 1),
+    targetSec: 60,
+  })),
+];
 const reasons = [
   '不认识单词',
   '语法不懂',
@@ -192,13 +211,24 @@ async function saveWrongs(deviceId: string, wrongs: Wrong[]) {
       type: question.type,
     };
   });
-  const response = await fetch('/api/wrongs', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ deviceId, items }),
-  });
-  if (!response.ok) throw new Error('failed to save wrong answers');
+  for (let start = 0; start < items.length; start += 50) {
+    const response = await fetch('/api/wrongs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceId, items: items.slice(start, start + 50) }),
+    });
+    if (!response.ok) throw new Error('failed to save wrong answers');
+  }
 }
+
+const importedWrongs = (): Wrong[] =>
+  importedWrongQuestions.map((question) => ({
+    id: question.id,
+    chosen: -1,
+    reason: '待分析',
+    mastered: false,
+    nextReview: today(),
+  }));
 
 export default function Home() {
   const [active, setActive] = useState('今日学习');
@@ -229,10 +259,29 @@ export default function Home() {
           `/api/wrongs?deviceId=${encodeURIComponent(id)}`,
         );
         if (!response.ok) throw new Error('database unavailable');
-        setWrongs(await response.json());
+        let hydrated: Wrong[] = await response.json();
+        if (!localStorage.getItem('ippo-imported-v2')) {
+          const merged = new Map(hydrated.map((wrong) => [wrong.id, wrong]));
+          importedWrongs().forEach((wrong) => {
+            if (!merged.has(wrong.id)) merged.set(wrong.id, wrong);
+          });
+          hydrated = [...merged.values()];
+          await saveWrongs(id, hydrated);
+          localStorage.setItem('ippo-imported-v2', '1');
+        }
+        setWrongs(hydrated);
         setDbReady(true);
       } catch {
-        setWrongs(localWrongs);
+        if (!localStorage.getItem('ippo-imported-v2')) {
+          const merged = new Map(localWrongs.map((wrong) => [wrong.id, wrong]));
+          importedWrongs().forEach((wrong) => {
+            if (!merged.has(wrong.id)) merged.set(wrong.id, wrong);
+          });
+          setWrongs([...merged.values()]);
+          localStorage.setItem('ippo-imported-v2', '1');
+        } else {
+          setWrongs(localWrongs);
+        }
       }
       setLoaded(true);
     };
@@ -536,8 +585,8 @@ function Quiz({
   const pool = useMemo(() => {
     const source =
       mode === 'diagnostic'
-        ? questions
-        : questions.filter((q) => q.module === practiceModule);
+        ? practiceQuestions
+        : practiceQuestions.filter((q) => q.module === practiceModule);
     if (source.length < 2) return source;
     const offset = Math.abs(Math.floor(sessionSeed)) % source.length;
     return [...source.slice(offset), ...source.slice(0, offset)];
@@ -915,17 +964,57 @@ function WrongBook({
                   </em>
                 </div>
                 <h3>{q.prompt}</h3>
+                {q.source && (
+                  <p className="source-ref">
+                    {q.source} · 第 {q.sourceQuestion} 题
+                    {q.frequency ? ` · 错误 ${q.frequency} 次` : ''}
+                  </p>
+                )}
+                {q.options.length > 0 && (
+                  <ol className="imported-options">
+                    {q.options.map((option, index) => (
+                      <li key={`${q.id}-${index}`}>{option}</li>
+                    ))}
+                  </ol>
+                )}
                 <div className="compare">
                   <p>
                     <small>你的答案</small>
-                    <b>{q.options[w.chosen]}</b>
+                    <b>
+                      {w.chosen >= 0
+                        ? q.options[w.chosen]
+                        : '原表未记录所选答案'}
+                    </b>
                   </p>
                   <p>
                     <small>正确答案</small>
-                    <b>{q.options[q.answer]}</b>
+                    <b>{q.answerText || q.options[q.answer]}</b>
                   </p>
                 </div>
                 <p className="explain">{q.explain}</p>
+                {(q.translation || q.distractorExplain || q.expansion) && (
+                  <details className="wrong-details">
+                    <summary>查看翻译与完整解析</summary>
+                    {q.translation && (
+                      <section>
+                        <b>题目翻译</b>
+                        <p>{q.translation}</p>
+                      </section>
+                    )}
+                    {q.distractorExplain && (
+                      <section>
+                        <b>错误选项讲解</b>
+                        <p>{q.distractorExplain}</p>
+                      </section>
+                    )}
+                    {q.expansion && (
+                      <section>
+                        <b>知识拓展</b>
+                        <p>{q.expansion}</p>
+                      </section>
+                    )}
+                  </details>
+                )}
                 <label>
                   错误原因
                   <select
