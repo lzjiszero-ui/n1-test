@@ -526,22 +526,46 @@ function Quiz({
   onSubmit: (a: Attempt) => void;
 }) {
   const [practiceModule, setPracticeModule] = useState<Module>('文字・語彙');
-  const pool =
-    mode === 'diagnostic'
-      ? questions
-      : questions.filter((q) => q.module === practiceModule);
+  const [sessionSeed, setSessionSeed] = useState(() => Date.now());
+  const [sessionAnswers, setSessionAnswers] = useState<Record<number, Attempt>>(
+    {},
+  );
+  const pool = useMemo(() => {
+    const source =
+      mode === 'diagnostic'
+        ? questions
+        : questions.filter((q) => q.module === practiceModule);
+    return [...source].sort(
+      (a, b) =>
+        ((a.id * 997 + sessionSeed) % 1009) -
+        ((b.id * 997 + sessionSeed) % 1009),
+    );
+  }, [mode, practiceModule, sessionSeed]);
   const [index, setIndex] = useState(0);
   const [chosen, setChosen] = useState<number | null>(null);
   const [checked, setChecked] = useState(false);
   const [start, setStart] = useState(Date.now());
   const q = pool[index];
-  const doneCount = pool.filter((x) =>
-    attempts.some((a) => a.id === x.id),
-  ).length;
+  const doneCount = pool.filter((x) => sessionAnswers[x.id]).length;
+  const resetSession = () => {
+    setSessionSeed(Date.now() + Math.random() * 10000);
+    setSessionAnswers({});
+    setIndex(0);
+    setChosen(null);
+    setChecked(false);
+    setStart(Date.now());
+  };
   const answer = () => {
     if (chosen === null) return;
     const seconds = Math.max(1, Math.round((Date.now() - start) / 1000));
-    onSubmit({ id: q.id, chosen, seconds, correct: chosen === q.answer });
+    const result = {
+      id: q.id,
+      chosen,
+      seconds,
+      correct: chosen === q.answer,
+    };
+    onSubmit(result);
+    setSessionAnswers((current) => ({ ...current, [q.id]: result }));
     setChecked(true);
   };
   const next = () => {
@@ -566,8 +590,15 @@ function Quiz({
             已完成 {doneCount}/{pool.length} · 重新作答会更新该题记录
           </p>
         </div>
-        <div className="live-time">
-          <Clock3 size={18} /> 目标 {q.targetSec} 秒
+        <div className="quiz-tools">
+          {mode === 'practice' && (
+            <button className="regenerate" onClick={resetSession}>
+              <RotateCcw size={15} /> 重新生成一组
+            </button>
+          )}
+          <div className="live-time">
+            <Clock3 size={18} /> 目标 {q.targetSec} 秒
+          </div>
         </div>
       </div>
       {mode === 'practice' && (
@@ -577,15 +608,20 @@ function Quiz({
               const moduleQuestions = questions.filter(
                 (q) => q.module === module,
               );
-              const completed = moduleQuestions.filter((question) =>
-                attempts.some((attempt) => attempt.id === question.id),
-              ).length;
+              const completed =
+                module === practiceModule
+                  ? moduleQuestions.filter(
+                      (question) => sessionAnswers[question.id],
+                    ).length
+                  : 0;
               return (
                 <button
                   key={module}
                   className={practiceModule === module ? 'active' : ''}
                   onClick={() => {
                     setPracticeModule(module);
+                    setSessionSeed(Date.now() + Math.random() * 10000);
+                    setSessionAnswers({});
                     setIndex(0);
                     setChosen(null);
                     setChecked(false);
@@ -664,7 +700,7 @@ function Quiz({
         <aside className="session-card">
           <h3>本轮进度</h3>
           {pool.map((item, i) => {
-            const a = attempts.find((x) => x.id === item.id);
+            const a = sessionAnswers[item.id];
             return (
               <button
                 key={item.id}
@@ -692,7 +728,7 @@ function Quiz({
           <p>
             {q.module === '聴解'
               ? '听解题当前使用文字稿模拟。真实音频与录音识别尚未接入。'
-              : '切换分类不会丢失进度；重新作答会更新该题的统计结果。'}
+              : '每次切换分类或重新生成都会开启新的刷题会话；历史成绩仍用于学习统计。'}
           </p>
         </aside>
       </div>

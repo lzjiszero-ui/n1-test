@@ -1388,6 +1388,26 @@ button {
   gap: 6px;
   align-items: center;
 }
+.quiz-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.regenerate {
+  border: 1px solid #cbd9d2;
+  background: #fff;
+  color: var(--green);
+  border-radius: 9px;
+  padding: 10px 12px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.regenerate:hover {
+  background: #edf6f2;
+}
 .practice-modules {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1932,6 +1952,12 @@ button {
   }
   .quiz-head .live-time {
     display: none;
+  }
+  .quiz-tools {
+    align-self: flex-start;
+  }
+  .regenerate {
+    white-space: nowrap;
   }
   .question-card {
     padding: 17px;
