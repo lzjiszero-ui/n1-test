@@ -13,10 +13,12 @@ import {
   NotebookPen,
   Play,
   RotateCcw,
+  Square,
   Target,
   TimerReset,
   Trophy,
   TrendingUp,
+  Volume2,
 } from 'lucide-react';
 
 type Module = '文字・語彙' | '文法' | '読解' | '聴解';
@@ -527,6 +529,7 @@ function Quiz({
 }) {
   const [practiceModule, setPracticeModule] = useState<Module>('文字・語彙');
   const [sessionSeed, setSessionSeed] = useState(() => Date.now());
+  const [generation, setGeneration] = useState(1);
   const [sessionAnswers, setSessionAnswers] = useState<Record<number, Attempt>>(
     {},
   );
@@ -535,25 +538,44 @@ function Quiz({
       mode === 'diagnostic'
         ? questions
         : questions.filter((q) => q.module === practiceModule);
-    return [...source].sort(
-      (a, b) =>
-        ((a.id * 997 + sessionSeed) % 1009) -
-        ((b.id * 997 + sessionSeed) % 1009),
-    );
+    if (source.length < 2) return source;
+    const offset = Math.abs(Math.floor(sessionSeed)) % source.length;
+    return [...source.slice(offset), ...source.slice(0, offset)];
   }, [mode, practiceModule, sessionSeed]);
   const [index, setIndex] = useState(0);
   const [chosen, setChosen] = useState<number | null>(null);
   const [checked, setChecked] = useState(false);
   const [start, setStart] = useState(Date.now());
+  const [speechRate, setSpeechRate] = useState(1);
+  const [speaking, setSpeaking] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(false);
   const q = pool[index];
   const doneCount = pool.filter((x) => sessionAnswers[x.id]).length;
   const resetSession = () => {
-    setSessionSeed(Date.now() + Math.random() * 10000);
+    setSessionSeed((seed) => seed + 1);
+    setGeneration((value) => value + 1);
     setSessionAnswers({});
     setIndex(0);
     setChosen(null);
     setChecked(false);
+    setShowTranscript(false);
+    window.speechSynthesis?.cancel();
+    setSpeaking(false);
     setStart(Date.now());
+  };
+  const playListening = () => {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const quoted = q.prompt.match(/「([^」]+)」/)?.[1];
+    const utterance = new SpeechSynthesisUtterance(
+      q.context || quoted || q.prompt,
+    );
+    utterance.lang = 'ja-JP';
+    utterance.rate = speechRate;
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    setSpeaking(true);
+    window.speechSynthesis.speak(utterance);
   };
   const answer = () => {
     if (chosen === null) return;
@@ -572,6 +594,9 @@ function Quiz({
     setIndex((index + 1) % pool.length);
     setChosen(null);
     setChecked(false);
+    setShowTranscript(false);
+    window.speechSynthesis?.cancel();
+    setSpeaking(false);
     setStart(Date.now());
   };
   return (
@@ -587,7 +612,8 @@ function Quiz({
               : `${practiceModule}专项训练`}
           </h1>
           <p>
-            已完成 {doneCount}/{pool.length} · 重新作答会更新该题记录
+            第 {generation} 组 · 已完成 {doneCount}/{pool.length} ·
+            重新生成会重置本轮状态
           </p>
         </div>
         <div className="quiz-tools">
@@ -620,11 +646,15 @@ function Quiz({
                   className={practiceModule === module ? 'active' : ''}
                   onClick={() => {
                     setPracticeModule(module);
-                    setSessionSeed(Date.now() + Math.random() * 10000);
+                    setSessionSeed((seed) => seed + 1);
+                    setGeneration((value) => value + 1);
                     setSessionAnswers({});
                     setIndex(0);
                     setChosen(null);
                     setChecked(false);
+                    setShowTranscript(false);
+                    window.speechSynthesis?.cancel();
+                    setSpeaking(false);
                     setStart(Date.now());
                   }}
                 >
@@ -655,7 +685,63 @@ function Quiz({
               第 {index + 1}/{pool.length} 题
             </em>
           </div>
-          {q.context && <div className="passage">{q.context}</div>}
+          {q.module === '聴解' && (
+            <div className="listening-player">
+              <div className="listen-main">
+                <button
+                  className="audio-play"
+                  onClick={
+                    speaking
+                      ? () => {
+                          window.speechSynthesis.cancel();
+                          setSpeaking(false);
+                        }
+                      : playListening
+                  }
+                >
+                  {speaking ? (
+                    <Square size={17} fill="currentColor" />
+                  ) : (
+                    <Volume2 size={19} />
+                  )}
+                  {speaking ? '停止播放' : '播放日语语音'}
+                </button>
+                <label>
+                  语速
+                  <select
+                    value={speechRate}
+                    onChange={(event) =>
+                      setSpeechRate(Number(event.target.value))
+                    }
+                  >
+                    <option value={0.75}>0.75×</option>
+                    <option value={1}>1.0×</option>
+                    <option value={1.25}>1.25×</option>
+                  </select>
+                </label>
+              </div>
+              <div className={`audio-wave ${speaking ? 'playing' : ''}`}>
+                {Array.from({ length: 24 }, (_, i) => (
+                  <i key={i} />
+                ))}
+              </div>
+              <p>浏览器日语合成语音 · 非 JLPT 官方录音</p>
+              {q.context && (
+                <button
+                  className="transcript-toggle"
+                  onClick={() => setShowTranscript(!showTranscript)}
+                >
+                  {showTranscript ? '隐藏文字稿' : '显示文字稿'}
+                </button>
+              )}
+            </div>
+          )}
+          {q.context && q.module !== '聴解' && (
+            <div className="passage">{q.context}</div>
+          )}
+          {q.context && q.module === '聴解' && (showTranscript || checked) && (
+            <div className="passage listening-transcript">{q.context}</div>
+          )}
           <h2>{q.prompt}</h2>
           <div className="answer-options">
             {q.options.map((o, i) => (
@@ -708,6 +794,9 @@ function Quiz({
                   setIndex(i);
                   setChosen(null);
                   setChecked(false);
+                  setShowTranscript(false);
+                  window.speechSynthesis?.cancel();
+                  setSpeaking(false);
                   setStart(Date.now());
                 }}
                 className={i === index ? 'current' : ''}
@@ -727,7 +816,7 @@ function Quiz({
           })}
           <p>
             {q.module === '聴解'
-              ? '听解题当前使用文字稿模拟。真实音频与录音识别尚未接入。'
+              ? '点击播放日语语音后作答；可调整语速或按需查看文字稿。'
               : '每次切换分类或重新生成都会开启新的刷题会话；历史成绩仍用于学习统计。'}
           </p>
         </aside>
