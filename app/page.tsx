@@ -181,20 +181,60 @@ const later = (days: number) => {
   return d.toISOString().slice(0, 10);
 };
 
+async function saveWrongs(deviceId: string, wrongs: Wrong[]) {
+  const items = wrongs.map((wrong) => {
+    const question = questions.find((q) => q.id === wrong.id)!;
+    return {
+      ...wrong,
+      module: question.module,
+      type: question.type,
+    };
+  });
+  const response = await fetch('/api/wrongs', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceId, items }),
+  });
+  if (!response.ok) throw new Error('failed to save wrong answers');
+}
+
 export default function Home() {
   const [active, setActive] = useState('今日学习');
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [wrongs, setWrongs] = useState<Wrong[]>([]);
   const [done, setDone] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [deviceId, setDeviceId] = useState('');
+  const [dbReady, setDbReady] = useState(false);
   useEffect(() => {
-    try {
+    const hydrate = async () => {
       setAttempts(JSON.parse(localStorage.getItem('ippo-attempts') || '[]'));
-      setWrongs(JSON.parse(localStorage.getItem('ippo-wrongs') || '[]'));
       setDone(JSON.parse(localStorage.getItem('ippo-done') || '[]'));
-    } finally {
+      const localWrongs: Wrong[] = JSON.parse(
+        localStorage.getItem('ippo-wrongs') || '[]',
+      );
+      let id = localStorage.getItem('ippo-device-id');
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem('ippo-device-id', id);
+      }
+      setDeviceId(id);
+      try {
+        if (localWrongs.length) {
+          await saveWrongs(id, localWrongs);
+        }
+        const response = await fetch(
+          `/api/wrongs?deviceId=${encodeURIComponent(id)}`,
+        );
+        if (!response.ok) throw new Error('database unavailable');
+        setWrongs(await response.json());
+        setDbReady(true);
+      } catch {
+        setWrongs(localWrongs);
+      }
       setLoaded(true);
-    }
+    };
+    void hydrate();
   }, []);
   useEffect(() => {
     if (loaded) {
@@ -203,6 +243,9 @@ export default function Home() {
       localStorage.setItem('ippo-done', JSON.stringify(done));
     }
   }, [attempts, wrongs, done, loaded]);
+  useEffect(() => {
+    if (dbReady && deviceId) void saveWrongs(deviceId, wrongs);
+  }, [wrongs, deviceId, dbReady]);
   const stats = useMemo(() => {
     const by = (m: Module) => {
       const a = attempts.filter(
@@ -243,8 +286,14 @@ export default function Home() {
         },
       ]);
   };
-  const reset = () => {
+  const reset = async () => {
     if (confirm('确定清除本机的学习记录并重新开始吗？')) {
+      if (deviceId)
+        await fetch('/api/wrongs', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ deviceId }),
+        });
       setAttempts([]);
       setWrongs([]);
       setDone([]);
@@ -277,8 +326,12 @@ export default function Home() {
           ))}
         </nav>
         <div className="privacy">
-          <b>本地模式</b>
-          <p>无需登录。答题、错题和进度只保存在当前浏览器。</p>
+          <b>{dbReady ? '数据库已连接' : '离线备用模式'}</b>
+          <p>
+            {dbReady
+              ? '错题已同步到站点数据库；学习进度仍保存在当前设备。'
+              : '数据库暂时不可用，错题会先保存在当前设备。'}
+          </p>
           <button onClick={reset}>
             <RotateCcw size={13} /> 清除记录
           </button>
@@ -611,8 +664,19 @@ function WrongBook({
   wrongs: Wrong[];
   setWrongs: (x: Wrong[]) => void;
 }) {
+  const [statusFilter, setStatusFilter] = useState('全部');
+  const [moduleFilter, setModuleFilter] = useState('全部');
   const update = (id: number, patch: Partial<Wrong>) =>
     setWrongs(wrongs.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+  const filtered = wrongs.filter((wrong) => {
+    const question = questions.find((q) => q.id === wrong.id)!;
+    const statusOk =
+      statusFilter === '全部' ||
+      (statusFilter === '已掌握' ? wrong.mastered : !wrong.mastered);
+    return (
+      statusOk && (moduleFilter === '全部' || question.module === moduleFilter)
+    );
+  });
   return (
     <div className="workspace">
       <div className="simple-title">
@@ -620,14 +684,51 @@ function WrongBook({
         <h1>错题本</h1>
         <p>每次答错都会自动加入；请补充错误原因，系统会安排复习日期。</p>
       </div>
+      <div className="wrong-filters">
+        <div>
+          <b>掌握状态</b>
+          {['全部', '未掌握', '已掌握'].map((filter) => (
+            <button
+              key={filter}
+              className={statusFilter === filter ? 'active' : ''}
+              onClick={() => setStatusFilter(filter)}
+            >
+              {filter}
+              <span>
+                {filter === '全部'
+                  ? wrongs.length
+                  : wrongs.filter((w) =>
+                      filter === '已掌握' ? w.mastered : !w.mastered,
+                    ).length}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div>
+          <b>题目分类</b>
+          {(['全部', '文字・語彙', '文法', '読解', '聴解'] as const).map(
+            (filter) => (
+              <button
+                key={filter}
+                className={moduleFilter === filter ? 'active' : ''}
+                onClick={() => setModuleFilter(filter)}
+              >
+                {filter}
+              </button>
+            ),
+          )}
+        </div>
+      </div>
       {wrongs.length === 0 ? (
         <Empty
           text="还没有错题"
           sub="去完成诊断或专项训练，答错的题会自动出现在这里。"
         />
+      ) : filtered.length === 0 ? (
+        <Empty text="没有符合条件的错题" sub="换一个掌握状态或题目分类看看。" />
       ) : (
         <div className="wrong-grid">
-          {wrongs.map((w) => {
+          {filtered.map((w) => {
             const q = questions.find((x) => x.id === w.id)!;
             return (
               <article

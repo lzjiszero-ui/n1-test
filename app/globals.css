@@ -1572,6 +1572,48 @@ button {
   grid-template-columns: repeat(2, 1fr);
   gap: 15px;
 }
+.wrong-filters {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 17px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wrong-filters > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.wrong-filters b {
+  font-size: 9px;
+  color: #75827d;
+  width: 62px;
+}
+.wrong-filters button {
+  border: 1px solid #e1e8e4;
+  background: #f8faf9;
+  border-radius: 7px;
+  padding: 6px 10px;
+  font-size: 9px;
+  color: #63716b;
+  cursor: pointer;
+}
+.wrong-filters button.active {
+  border-color: #3d896c;
+  background: #e8f4ee;
+  color: var(--green);
+  font-weight: 750;
+}
+.wrong-filters button span {
+  margin-left: 5px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 1px 5px;
+}
 .wrong-real {
   background: white;
   border: 1px solid var(--line);
