@@ -1388,6 +1388,57 @@ button {
   gap: 6px;
   align-items: center;
 }
+.practice-modules {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin: -4px 0 17px;
+}
+.practice-modules > button {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px 13px;
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 9px;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+.practice-modules > button > span {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: #f0f4f2;
+  color: #698079;
+  display: grid;
+  place-items: center;
+}
+.practice-modules > button div {
+  display: flex;
+  flex-direction: column;
+}
+.practice-modules b {
+  font-size: 11px;
+}
+.practice-modules small {
+  font-size: 8px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.practice-modules > button.active {
+  border-color: #3e8c6e;
+  background: #edf7f2;
+  box-shadow: 0 4px 14px #1f624613;
+}
+.practice-modules > button.active > span {
+  background: #d9eee4;
+  color: var(--green);
+}
+.practice-modules > button.active b {
+  color: var(--green);
+}
 .quiz-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 270px;
@@ -1804,6 +1855,9 @@ button {
   .wrong-grid {
     grid-template-columns: 1fr;
   }
+  .practice-modules {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 @media (max-width: 620px) {
   .real-side {
@@ -1906,5 +1960,13 @@ button {
   }
   .q-actions {
     gap: 10px;
+  }
+  .practice-modules {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .practice-modules > button {
+    min-width: 145px;
   }
 }

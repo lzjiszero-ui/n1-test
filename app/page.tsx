@@ -525,12 +525,11 @@ function Quiz({
   attempts: Attempt[];
   onSubmit: (a: Attempt) => void;
 }) {
+  const [practiceModule, setPracticeModule] = useState<Module>('文字・語彙');
   const pool =
     mode === 'diagnostic'
       ? questions
-      : questions.filter((q) =>
-          ['文字・語彙', '文法', '読解'].includes(q.module),
-        );
+      : questions.filter((q) => q.module === practiceModule);
   const [index, setIndex] = useState(0);
   const [chosen, setChosen] = useState<number | null>(null);
   const [checked, setChecked] = useState(false);
@@ -561,7 +560,7 @@ function Quiz({
           <h1>
             {mode === 'diagnostic'
               ? '8 道真实题目 · 自动计时判分'
-              : 'N1 高频题型练习'}
+              : `${practiceModule}专项训练`}
           </h1>
           <p>
             已完成 {doneCount}/{pool.length} · 重新作答会更新该题记录
@@ -571,6 +570,46 @@ function Quiz({
           <Clock3 size={18} /> 目标 {q.targetSec} 秒
         </div>
       </div>
+      {mode === 'practice' && (
+        <div className="practice-modules" aria-label="专项训练分类">
+          {(['文字・語彙', '文法', '読解', '聴解'] as Module[]).map(
+            (module) => {
+              const moduleQuestions = questions.filter(
+                (q) => q.module === module,
+              );
+              const completed = moduleQuestions.filter((question) =>
+                attempts.some((attempt) => attempt.id === question.id),
+              ).length;
+              return (
+                <button
+                  key={module}
+                  className={practiceModule === module ? 'active' : ''}
+                  onClick={() => {
+                    setPracticeModule(module);
+                    setIndex(0);
+                    setChosen(null);
+                    setChecked(false);
+                    setStart(Date.now());
+                  }}
+                >
+                  <span>
+                    {module === '文字・語彙' && <BookOpen size={18} />}
+                    {module === '文法' && <BrainCircuit size={18} />}
+                    {module === '読解' && <NotebookPen size={18} />}
+                    {module === '聴解' && <Headphones size={18} />}
+                  </span>
+                  <div>
+                    <b>{module}</b>
+                    <small>
+                      已完成 {completed}/{moduleQuestions.length} 题
+                    </small>
+                  </div>
+                </button>
+              );
+            },
+          )}
+        </div>
+      )}
       <div className="quiz-layout">
         <section className="question-card">
           <div className="q-meta">
@@ -650,7 +689,11 @@ function Quiz({
               </button>
             );
           })}
-          <p>提示：听解题当前使用文字稿模拟。真实音频与录音识别尚未接入。</p>
+          <p>
+            {q.module === '聴解'
+              ? '听解题当前使用文字稿模拟。真实音频与录音识别尚未接入。'
+              : '切换分类不会丢失进度；重新作答会更新该题的统计结果。'}
+          </p>
         </aside>
       </div>
     </div>
