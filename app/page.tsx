@@ -13,7 +13,9 @@ import {
   NotebookPen,
   Play,
   RotateCcw,
+  Moon,
   Square,
+  Sun,
   Target,
   TimerReset,
   Trophy,
@@ -202,6 +204,22 @@ const later = (days: number) => {
   return d.toISOString().slice(0, 10);
 };
 
+const voiceQualityScore = (voice: SpeechSynthesisVoice) => {
+  const name = voice.name.toLowerCase();
+  let score = voice.lang.toLowerCase().startsWith('ja') ? 100 : 0;
+  if (/natural|neural|premium|enhanced/.test(name)) score += 40;
+  if (/nanami|keita|haruka|google.*日本語|google.*japanese/.test(name))
+    score += 30;
+  if (/microsoft|google|apple/.test(name)) score += 10;
+  if (voice.localService) score += 3;
+  return score;
+};
+
+const rankJapaneseVoices = (voices: SpeechSynthesisVoice[]) =>
+  voices
+    .filter((voice) => voice.lang.toLowerCase().startsWith('ja'))
+    .sort((a, b) => voiceQualityScore(b) - voiceQualityScore(a));
+
 async function saveWrongs(deviceId: string, wrongs: Wrong[]) {
   const items = wrongs.map((wrong) => {
     const question = questions.find((q) => q.id === wrong.id)!;
@@ -238,6 +256,24 @@ export default function Home() {
   const [loaded, setLoaded] = useState(false);
   const [deviceId, setDeviceId] = useState('');
   const [dbReady, setDbReady] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  useEffect(() => {
+    const stored = localStorage.getItem('ippo-theme');
+    const initial =
+      stored === 'light' || stored === 'dark'
+        ? stored
+        : window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? 'dark'
+          : 'light';
+    setTheme(initial);
+    document.documentElement.dataset.theme = initial;
+  }, []);
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('ippo-theme', next);
+  };
   useEffect(() => {
     const hydrate = async () => {
       setAttempts(JSON.parse(localStorage.getItem('ippo-attempts') || '[]'));
@@ -391,9 +427,19 @@ export default function Home() {
       <section className="real-content">
         <header className="real-top">
           <b>一歩 N1</b>
-          <span>
-            <Flame size={17} /> 今天已完成 {done.length} 项
-          </span>
+          <div className="top-actions">
+            <span>
+              <Flame size={17} /> 今天已完成 {done.length} 项
+            </span>
+            <button
+              className="theme-toggle"
+              onClick={toggleTheme}
+              aria-label={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+              title={theme === 'dark' ? '浅色模式' : '深色模式'}
+            >
+              {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+            </button>
+          </div>
         </header>
         {active === '今日学习' && (
           <Dashboard
@@ -595,11 +641,34 @@ function Quiz({
   const [chosen, setChosen] = useState<number | null>(null);
   const [checked, setChecked] = useState(false);
   const [start, setStart] = useState(Date.now());
-  const [speechRate, setSpeechRate] = useState(1);
+  const [speechRate, setSpeechRate] = useState(0.9);
   const [speaking, setSpeaking] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [availableVoices, setAvailableVoices] = useState<
+    SpeechSynthesisVoice[]
+  >([]);
+  const [voiceUri, setVoiceUri] = useState('');
   const q = pool[index];
   const doneCount = pool.filter((x) => sessionAnswers[x.id]).length;
+  const japaneseVoices = useMemo(
+    () => rankJapaneseVoices(availableVoices),
+    [availableVoices],
+  );
+  useEffect(() => {
+    if (!('speechSynthesis' in window)) return;
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      setAvailableVoices(voices);
+      const preferred = rankJapaneseVoices(voices)[0];
+      if (preferred) setVoiceUri((current) => current || preferred.voiceURI);
+    };
+    loadVoices();
+    window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
+    return () => {
+      window.speechSynthesis.removeEventListener('voiceschanged', loadVoices);
+      window.speechSynthesis.cancel();
+    };
+  }, []);
   const resetSession = () => {
     setSessionSeed((seed) => seed + 1);
     setGeneration((value) => value + 1);
@@ -616,15 +685,39 @@ function Quiz({
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
     const quoted = q.prompt.match(/「([^」]+)」/)?.[1];
-    const utterance = new SpeechSynthesisUtterance(
-      q.context || quoted || q.prompt,
+    const selectedVoice =
+      japaneseVoices.find((voice) => voice.voiceURI === voiceUri) ||
+      japaneseVoices[0];
+    const alternateVoice = japaneseVoices.find(
+      (voice) => voice.voiceURI !== selectedVoice?.voiceURI,
     );
-    utterance.lang = 'ja-JP';
-    utterance.rate = speechRate;
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
+    const dialogue = q.context
+      ? [...q.context.matchAll(/([男女])：([\s\S]*?)(?=(?:女|男)：|$)/g)].map(
+          (match) => ({ speaker: match[1], text: match[2].trim() }),
+        )
+      : [];
+    const segments = dialogue.length
+      ? dialogue
+      : [{ speaker: '女', text: quoted || q.context || q.prompt }];
+    const utterances = segments.map(({ speaker, text }) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'ja-JP';
+      utterance.voice =
+        speaker === '男' && alternateVoice
+          ? alternateVoice
+          : selectedVoice || null;
+      utterance.rate = speechRate;
+      utterance.pitch = speaker === '男' ? 0.94 : 1.03;
+      utterance.volume = 1;
+      return utterance;
+    });
+    const finish = () => setSpeaking(false);
+    utterances.at(-1)!.onend = finish;
+    utterances.forEach((utterance) => {
+      utterance.onerror = finish;
+    });
     setSpeaking(true);
-    window.speechSynthesis.speak(utterance);
+    utterances.forEach((utterance) => window.speechSynthesis.speak(utterance));
   };
   const answer = () => {
     if (chosen === null) return;
@@ -763,18 +856,37 @@ function Quiz({
                       setSpeechRate(Number(event.target.value))
                     }
                   >
-                    <option value={0.75}>0.75×</option>
-                    <option value={1}>1.0×</option>
-                    <option value={1.25}>1.25×</option>
+                    <option value={0.78}>慢速</option>
+                    <option value={0.9}>自然</option>
+                    <option value={1.05}>稍快</option>
                   </select>
                 </label>
+                {japaneseVoices.length > 1 && (
+                  <label>
+                    声音
+                    <select
+                      value={voiceUri}
+                      onChange={(event) => setVoiceUri(event.target.value)}
+                    >
+                      {japaneseVoices.map((voice) => (
+                        <option key={voice.voiceURI} value={voice.voiceURI}>
+                          {voice.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </div>
               <div className={`audio-wave ${speaking ? 'playing' : ''}`}>
                 {Array.from({ length: 24 }, (_, i) => (
                   <i key={i} />
                 ))}
               </div>
-              <p>浏览器日语合成语音 · 非 JLPT 官方录音</p>
+              <p>
+                {japaneseVoices.length
+                  ? '已优先使用高质量日语人声 · 非 JLPT 官方录音'
+                  : '未检测到日语人声，将使用系统默认语音'}
+              </p>
               {q.context && (
                 <button
                   className="transcript-toggle"
