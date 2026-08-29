@@ -1,7 +1,7 @@
 'use client';
-import { useState } from 'react';
+
+import { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowRight,
   BookOpen,
   BrainCircuit,
   Check,
@@ -10,476 +10,864 @@ import {
   Flame,
   Headphones,
   LayoutDashboard,
-  MessageCircleMore,
   NotebookPen,
   Play,
-  Sparkles,
+  RotateCcw,
   Target,
   TimerReset,
   Trophy,
   TrendingUp,
 } from 'lucide-react';
 
-const tasks = [
+type Module = '文字・語彙' | '文法' | '読解' | '聴解';
+type Question = {
+  id: number;
+  module: Module;
+  type: string;
+  prompt: string;
+  context?: string;
+  options: string[];
+  answer: number;
+  explain: string;
+  targetSec: number;
+};
+type Wrong = {
+  id: number;
+  chosen: number;
+  reason: string;
+  mastered: boolean;
+  nextReview: string;
+};
+type Attempt = {
+  id: number;
+  chosen: number;
+  seconds: number;
+  correct: boolean;
+};
+const questions: Question[] = [
   {
-    icon: BrainCircuit,
-    label: '今日词汇',
-    detail: '近义词辨析 · 促す／催促する',
-    time: 10,
-    color: 'mint',
+    id: 1,
+    module: '文字・語彙',
+    type: '同义词辨析',
+    prompt: 'この制度の利用を市民に（　）ため、広報活動を強化した。',
+    options: ['催促する', '促す', '急かす', '追い込む'],
+    answer: 1,
+    explain:
+      '「促す」表示推动、鼓励某人采取行动；「催促する」用于催对方完成已经约定或应该完成的事情。',
+    targetSec: 45,
   },
   {
-    icon: NotebookPen,
-    label: '今日语法',
-    detail: '逆接 · ～とはいえ／～ものの',
-    time: 8,
-    color: 'yellow',
+    id: 2,
+    module: '文字・語彙',
+    type: '语境词汇',
+    prompt: '新技術の導入によって、生産性に（　）向上が見られた。',
+    options: ['著しい', '険しい', '騒がしい', '乏しい'],
+    answer: 0,
+    explain: '「著しい向上」是固定且自然的搭配，表示程度显著。',
+    targetSec: 40,
   },
   {
-    icon: BookOpen,
-    label: '阅读训练',
-    detail: '长文结构分析 · 社会评论',
-    time: 7,
-    color: 'blue',
+    id: 3,
+    module: '文法',
+    type: '逆接',
+    prompt: '経験がない（　）、この仕事ができないとは限らない。',
+    options: ['からといって', 'ものなら', 'ばかりに', 'ところを'],
+    answer: 0,
+    explain: '「～からといって～とは限らない」表示“不能仅因为……就断定……”。',
+    targetSec: 50,
   },
   {
-    icon: TimerReset,
-    label: '错题复习',
-    detail: '5 道到期错题',
-    time: 5,
-    color: 'pink',
+    id: 4,
+    module: '文法',
+    type: '接续与语气',
+    prompt: '事情を知っている（　）、彼は何も話そうとしなかった。',
+    options: ['にしては', 'ものの', 'につれて', 'あげく'],
+    answer: 1,
+    explain: '「～ものの」接普通形，表示承认前项事实后转折，书面语色彩较强。',
+    targetSec: 50,
   },
+  {
+    id: 5,
+    module: '読解',
+    type: '指示词',
+    context:
+      '便利さを追求すること自体が悪いのではない。しかし、それによって考える時間まで失われるなら、私たちは一度立ち止まる必要がある。このことは、技術を拒むという意味ではない。',
+    prompt: '「このこと」が指す内容として最も近いものはどれか。',
+    options: [
+      '便利さを全面否定すること',
+      '技術の利用をやめること',
+      '便利さが思考時間を奪う場合に再考すること',
+      '考える時間を短くすること',
+    ],
+    answer: 2,
+    explain:
+      '直前句“一度立ち止まる必要がある”的具体内容，即便利性损害思考时间时应重新审视。',
+    targetSec: 95,
+  },
+  {
+    id: 6,
+    module: '読解',
+    type: '作者观点',
+    context:
+      '失敗を避ける仕組みは必要だ。だが、失敗の可能性を完全になくそうとすれば、新しい試みも生まれない。重要なのは失敗しないことではなく、失敗から何を学ぶかである。',
+    prompt: '作者最想表达什么？',
+    options: [
+      '所有失败都值得鼓励',
+      '应取消风险管理',
+      '学习失败比完全避免失败更重要',
+      '新尝试必然失败',
+    ],
+    answer: 2,
+    explain: '末句是结论句，作者强调重点不是零失败，而是从失败中学习。',
+    targetSec: 105,
+  },
+  {
+    id: 7,
+    module: '聴解',
+    type: '要点理解',
+    context:
+      '女：会議の資料、今日中に印刷しますか。男：内容が一部変わるそうだから、部長の確認が終わってからにしよう。女：では、先に参加者の名簿を確認しておきます。',
+    prompt: '女の人はまず何をしますか。',
+    options: [
+      '資料を印刷する',
+      '部長に電話する',
+      '内容を変更する',
+      '参加者名簿を確認する',
+    ],
+    answer: 3,
+    explain:
+      '女性最后说「先に参加者の名簿を確認しておきます」，因此先确认名单。',
+    targetSec: 65,
+  },
+  {
+    id: 8,
+    module: '聴解',
+    type: '即时应答',
+    prompt:
+      '「明日の発表、延期になったんだって？」への最も自然な応答はどれか。',
+    options: [
+      'ええ、来週に変わったそうです',
+      'いいえ、発表が上手ですね',
+      'では、昨日にしましょう',
+      '発表してもらいません',
+    ],
+    answer: 0,
+    explain: '对传闻的确认，自然回应是肯定并补充延期后的时间。',
+    targetSec: 35,
+  },
+];
+const reasons = [
+  '不认识单词',
+  '语法不懂',
+  '看错题目',
+  '被选项迷惑',
+  '阅读速度慢',
+  '听力没听清',
+  '时间不足',
+  '粗心',
 ];
 const nav = [
   [LayoutDashboard, '今日学习'],
   [Target, '诊断测试'],
   [BrainCircuit, '专项训练'],
   [NotebookPen, '错题本'],
-  [Trophy, '模拟考试'],
+  [Trophy, '分数模拟'],
   [TrendingUp, '学习数据'],
 ] as const;
-
-const featureInfo: Record<
-  string,
-  { title: string; sub: string; cards: string[][] }
-> = {
-  诊断测试: {
-    title: '入学诊断测试',
-    sub: '45 分钟看清知识与速度的真实短板',
-    cards: [
-      ['文字・語彙', '72%', '同义词辨析 45%'],
-      ['文法', '68%', '逆接与语气薄弱'],
-      ['読解', '61%', '长文平均超时 6 分钟'],
-      ['聴解', '66%', '问题 3・4 正确率较低'],
-    ],
-  },
-  专项训练: {
-    title: 'N1 专项训练室',
-    sub: '今天重点解决「会做，但做不完」',
-    cards: [
-      ['词汇辨析', '促す／催促する', '中文・日文释义与搭配'],
-      ['语法接续', '逆接・限定・评价', '前接、语气、书面／口语'],
-      ['长文结构', '观点 → 反驳 → 结论', '标记依据段落与转折'],
-      ['听力精听', '课题・要点・概要', '逐句、字幕、听写与跟读'],
-    ],
-  },
-  错题本: {
-    title: '智能错题本',
-    sub: '不只记答案，也找出反复出错的原因',
-    cards: [
-      ['逆接语法', '～からといって', '被选项迷惑 · 今天再测'],
-      ['近义词辨析', '著しい／目覚ましい', '不认识单词 · 明天再测'],
-      ['阅读主旨', '社会评论长文', '阅读速度慢 · 9月1日再测'],
-      ['听力概要', '问题 4', '听力没听清 · 未掌握'],
-    ],
-  },
-  模拟考试: {
-    title: 'N1 分数模拟',
-    sub: '参考 JLPT 评分逻辑，提前发现单科风险',
-    cards: [
-      ['语言知识', '38 / 60', '安全 · 单科线 19'],
-      ['阅读', '34 / 60', '需提速 · 单科线 19'],
-      ['听力', '36 / 60', '安全 · 单科线 19'],
-      ['总分', '108 / 180', '超过合格线 8 分'],
-    ],
-  },
-  学习数据: {
-    title: '你的进步',
-    sub: '比单次分数更重要的是持续变强的证据',
-    cards: [
-      ['连续学习', '12 天', '本周已学习 124 分钟'],
-      ['预计得分', '+7 分', '近 4 周 +16 分'],
-      ['综合掌握率', '68%', '比上周提高 6%'],
-      ['平均速度', '-12% 用时', '阅读仍比合格者慢 18%'],
-    ],
-  },
+const today = () => new Date().toISOString().slice(0, 10);
+const later = (days: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
 };
-function FeaturePage({
-  active,
-  onBack,
-}: {
-  active: string;
-  onBack: () => void;
-}) {
-  const [run, setRun] = useState(false);
-  const info = featureInfo[active];
+
+export default function Home() {
+  const [active, setActive] = useState('今日学习');
+  const [attempts, setAttempts] = useState<Attempt[]>([]);
+  const [wrongs, setWrongs] = useState<Wrong[]>([]);
+  const [done, setDone] = useState<string[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    try {
+      setAttempts(JSON.parse(localStorage.getItem('ippo-attempts') || '[]'));
+      setWrongs(JSON.parse(localStorage.getItem('ippo-wrongs') || '[]'));
+      setDone(JSON.parse(localStorage.getItem('ippo-done') || '[]'));
+    } finally {
+      setLoaded(true);
+    }
+  }, []);
+  useEffect(() => {
+    if (loaded) {
+      localStorage.setItem('ippo-attempts', JSON.stringify(attempts));
+      localStorage.setItem('ippo-wrongs', JSON.stringify(wrongs));
+      localStorage.setItem('ippo-done', JSON.stringify(done));
+    }
+  }, [attempts, wrongs, done, loaded]);
+  const stats = useMemo(() => {
+    const by = (m: Module) => {
+      const a = attempts.filter(
+        (x) => questions.find((q) => q.id === x.id)?.module === m,
+      );
+      return a.length
+        ? Math.round((a.filter((x) => x.correct).length / a.length) * 100)
+        : 0;
+    };
+    const rates = (['文字・語彙', '文法', '読解', '聴解'] as Module[]).map(by);
+    const total = attempts.length
+      ? Math.round(
+          (attempts.filter((x) => x.correct).length / attempts.length) * 100,
+        )
+      : 0;
+    return {
+      rates,
+      total,
+      score: attempts.length ? Math.round(total * 1.8) : null,
+      avg: attempts.length
+        ? Math.round(
+            attempts.reduce((s, x) => s + x.seconds, 0) / attempts.length,
+          )
+        : 0,
+    };
+  }, [attempts]);
+  const submit = (a: Attempt) => {
+    setAttempts((p) => [...p.filter((x) => x.id !== a.id), a]);
+    if (!a.correct && !wrongs.some((w) => w.id === a.id))
+      setWrongs((p) => [
+        ...p,
+        {
+          id: a.id,
+          chosen: a.chosen,
+          reason: '待分析',
+          mastered: false,
+          nextReview: later(1),
+        },
+      ]);
+  };
+  const reset = () => {
+    if (confirm('确定清除本机的学习记录并重新开始吗？')) {
+      setAttempts([]);
+      setWrongs([]);
+      setDone([]);
+    }
+  };
   return (
-    <div className="feature-page">
-      <button className="back" onClick={onBack}>
-        ← 返回今日学习
-      </button>
-      <div className="feature-title">
-        <div>
-          <span className="eyebrow">IPPO N1 · PERSONAL COACH</span>
-          <h1>{info.title}</h1>
-          <p>{info.sub}</p>
+    <main className="real-shell">
+      <aside className="real-side">
+        <div className="brand">
+          <span className="brand-mark">一</span>
+          <div>
+            <b>一歩 N1</b>
+            <small>数据保存在此设备</small>
+          </div>
         </div>
-        <div className="phase">
-          <small>当前阶段</small>
-          <b>分模块训练期</b>
-          <span>距离考试 98 天</span>
-        </div>
-      </div>
-      <div className="feature-grid">
-        {info.cards.map(([name, value, note], i) => (
-          <article className="feature-card card" key={name}>
-            <span>0{i + 1}</span>
-            <h3>{name}</h3>
-            <b>{value}</b>
-            <p>{note}</p>
-            <div>
-              <i style={{ width: `${78 - i * 8}%` }} />
-            </div>
-            <button>
-              查看详情 <ArrowRight size={14} />
+        <nav>
+          {nav.map(([Icon, label]) => (
+            <button
+              key={label}
+              className={active === label ? 'active' : ''}
+              onClick={() => setActive(label)}
+            >
+              <Icon size={19} />
+              <span>{label}</span>
+              {label === '错题本' &&
+                wrongs.filter((w) => !w.mastered).length > 0 && (
+                  <em>{wrongs.filter((w) => !w.mastered).length}</em>
+                )}
             </button>
-          </article>
+          ))}
+        </nav>
+        <div className="privacy">
+          <b>本地模式</b>
+          <p>无需登录。答题、错题和进度只保存在当前浏览器。</p>
+          <button onClick={reset}>
+            <RotateCcw size={13} /> 清除记录
+          </button>
+        </div>
+      </aside>
+      <section className="real-content">
+        <header className="real-top">
+          <b>一歩 N1</b>
+          <span>
+            <Flame size={17} /> 今天已完成 {done.length} 项
+          </span>
+        </header>
+        {active === '今日学习' && (
+          <Dashboard
+            stats={stats}
+            done={done}
+            setDone={setDone}
+            go={setActive}
+            wrongCount={wrongs.filter((w) => !w.mastered).length}
+          />
+        )}{' '}
+        {active === '诊断测试' && (
+          <Quiz mode="diagnostic" attempts={attempts} onSubmit={submit} />
+        )}{' '}
+        {active === '专项训练' && (
+          <Quiz mode="practice" attempts={attempts} onSubmit={submit} />
+        )}{' '}
+        {active === '错题本' && (
+          <WrongBook wrongs={wrongs} setWrongs={setWrongs} />
+        )}{' '}
+        {active === '分数模拟' && (
+          <Score stats={stats} attempts={attempts} go={setActive} />
+        )}{' '}
+        {active === '学习数据' && (
+          <Data stats={stats} attempts={attempts} wrongs={wrongs} />
+        )}
+      </section>
+    </main>
+  );
+}
+
+function Dashboard({
+  stats,
+  done,
+  setDone,
+  go,
+  wrongCount,
+}: {
+  stats: any;
+  done: string[];
+  setDone: (x: string[]) => void;
+  go: (x: string) => void;
+  wrongCount: number;
+}) {
+  const tasks = [
+    ['词汇辨析', '完成 2 道近义词题', '专项训练'],
+    ['语法训练', '完成 2 道接续题', '专项训练'],
+    ['阅读限时', '完成 1 篇短文', '专项训练'],
+    ['到期错题', `${wrongCount} 道需要复习`, '错题本'],
+  ];
+  const score = stats.score;
+  return (
+    <div className="workspace">
+      <div className="hero-row">
+        <div>
+          <span className="kicker">今日学习</span>
+          <h1>
+            {score === null
+              ? '先做一次诊断，建立你的真实起点。'
+              : '继续保持，今天也向合格靠近一步。'}
+          </h1>
+          <p>
+            {score === null
+              ? '8 道分模块题目，系统会同时记录正确率与作答速度。'
+              : `目前已记录 ${stats.rates.filter((x: number) => x > 0).length} 个模块的数据，所有结果来自你的真实作答。`}
+          </p>
+        </div>
+        <button
+          className="solid"
+          onClick={() => go(score === null ? '诊断测试' : '专项训练')}
+        >
+          <Play size={16} />
+          {score === null ? '开始诊断' : '开始训练'}
+        </button>
+      </div>
+      <div className="real-score">
+        <div>
+          <span>基于真实作答的预计分</span>
+          <b>
+            {score ?? '—'}
+            <small>/180</small>
+          </b>
+          <p>
+            {score === null
+              ? '完成诊断后生成'
+              : score >= 100
+                ? '当前达到总分线'
+                : '距离 100 分合格线还差 ' + (100 - score) + ' 分'}
+          </p>
+        </div>
+        {(['文字・語彙', '文法', '読解', '聴解'] as Module[]).map((m, i) => (
+          <div className="metric" key={m}>
+            <span>{m}</span>
+            <b>
+              {stats.rates[i] || '—'}
+              {stats.rates[i] > 0 && <small>%</small>}
+            </b>
+            <div>
+              <i style={{ width: `${stats.rates[i]}%` }} />
+            </div>
+          </div>
         ))}
       </div>
-      {active === '诊断测试' && (
-        <section className="callout">
-          <div>
-            <span>AI 初步判断</span>
-            <h2>你不是不会，而是速度拖累了得分。</h2>
-            <p>
-              系统会同时分析正确率、每题用时、薄弱题型，并识别“知识会但做不完”的问题。
-            </p>
+      <div className="dash-grid">
+        <section className="white-card">
+          <div className="card-head">
+            <div>
+              <span className="kicker">DAILY PLAN</span>
+              <h2>今天的学习清单</h2>
+            </div>
+            <b>{done.length}/4</b>
           </div>
-          <button onClick={() => setRun(!run)}>
-            {run ? '诊断进行中 · 02:14' : '开始 45 分钟诊断'}
-          </button>
-        </section>
-      )}
-      {active === '专项训练' && (
-        <section className="demo card">
-          <div className="demo-top">
-            <span>词汇辨析 · 第 3 / 10 题</span>
-            <b>00:42</b>
-          </div>
-          <h2>この制度の利用を市民に（　）ため、広報活動を強化した。</h2>
-          <div className="demo-options">
-            <button>催促する</button>
-            <button className="selected">促す</button>
-            <button>急かす</button>
-          </div>
-          <p>
-            <b>促す：</b>
-            自然地推动对方采取行动。常见搭配：注意を促す・参加を促す
-          </p>
-          <div className="listen-tools">
-            <button>0.75×</button>
-            <button className="selected">1.0×</button>
-            <button>1.25×</button>
-            <button>▶ 逐句播放</button>
-            <button>● 跟读录音</button>
-          </div>
-        </section>
-      )}
-      {active === '错题本' && (
-        <section className="reason-strip">
-          <b>错误原因标签</b>
-          {[
-            '不认识单词',
-            '语法不懂',
-            '看错题目',
-            '被选项迷惑',
-            '阅读速度慢',
-            '听力没听清',
-            '时间不足',
-            '粗心',
-          ].map((x) => (
-            <span key={x}>{x}</span>
+          {tasks.map(([name, sub, dest]) => (
+            <button
+              className={
+                done.includes(name) ? 'real-task checked' : 'real-task'
+              }
+              key={name}
+              onClick={() => {
+                if (!done.includes(name)) go(dest);
+              }}
+            >
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDone(
+                    done.includes(name)
+                      ? done.filter((x) => x !== name)
+                      : [...done, name],
+                  );
+                }}
+              >
+                {done.includes(name) && <Check size={14} />}
+              </span>
+              <div>
+                <b>{name}</b>
+                <small>{sub}</small>
+              </div>
+              <ChevronRight size={16} />
+            </button>
           ))}
         </section>
-      )}
-      {active === '模拟考试' && (
-        <section className="risk">
-          <b>✓ 当前达到合格线</b>
-          <p>特别注意：即使总分超过 100，任何单科低于 19 分仍然不合格。</p>
-          <button>开始 165 分钟整套模拟</button>
+        <section className="white-card">
+          <div className="card-head">
+            <div>
+              <span className="kicker">NEXT ACTION</span>
+              <h2>系统建议</h2>
+            </div>
+          </div>
+          {stats.score === null ? (
+            <Empty
+              text="目前没有足够数据"
+              sub="完成诊断后，这里会根据正确率和速度给出建议。"
+            />
+          ) : (
+            <div className="advice">
+              <Target size={26} />
+              <b>
+                {stats.rates[2] < 70 ? '优先提高阅读正确率' : '进入限时训练'}
+              </b>
+              <p>
+                {stats.avg > 75
+                  ? `平均每题 ${stats.avg} 秒，速度仍有提升空间。`
+                  : '当前速度稳定，下一步应加强易混选项判断。'}
+              </p>
+              <button onClick={() => go('专项训练')}>去训练</button>
+            </div>
+          )}
         </section>
-      )}
-      {active === '学习数据' && (
-        <section className="trend card">
-          <h2>8 周预计分数趋势</h2>
-          <div className="bars">
-            {[78, 82, 81, 89, 94, 99, 104, 108].map((v, i) => (
-              <i key={i} style={{ height: `${v - 60}%` }}>
-                <span>{v}</span>
-              </i>
+      </div>
+    </div>
+  );
+}
+
+function Quiz({
+  mode,
+  attempts,
+  onSubmit,
+}: {
+  mode: string;
+  attempts: Attempt[];
+  onSubmit: (a: Attempt) => void;
+}) {
+  const pool =
+    mode === 'diagnostic'
+      ? questions
+      : questions.filter((q) =>
+          ['文字・語彙', '文法', '読解'].includes(q.module),
+        );
+  const [index, setIndex] = useState(0);
+  const [chosen, setChosen] = useState<number | null>(null);
+  const [checked, setChecked] = useState(false);
+  const [start, setStart] = useState(Date.now());
+  const q = pool[index];
+  const doneCount = pool.filter((x) =>
+    attempts.some((a) => a.id === x.id),
+  ).length;
+  const answer = () => {
+    if (chosen === null) return;
+    const seconds = Math.max(1, Math.round((Date.now() - start) / 1000));
+    onSubmit({ id: q.id, chosen, seconds, correct: chosen === q.answer });
+    setChecked(true);
+  };
+  const next = () => {
+    setIndex((index + 1) % pool.length);
+    setChosen(null);
+    setChecked(false);
+    setStart(Date.now());
+  };
+  return (
+    <div className="workspace">
+      <div className="quiz-head">
+        <div>
+          <span className="kicker">
+            {mode === 'diagnostic' ? '入学诊断' : '专项训练'}
+          </span>
+          <h1>
+            {mode === 'diagnostic'
+              ? '8 道真实题目 · 自动计时判分'
+              : 'N1 高频题型练习'}
+          </h1>
+          <p>
+            已完成 {doneCount}/{pool.length} · 重新作答会更新该题记录
+          </p>
+        </div>
+        <div className="live-time">
+          <Clock3 size={18} /> 目标 {q.targetSec} 秒
+        </div>
+      </div>
+      <div className="quiz-layout">
+        <section className="question-card">
+          <div className="q-meta">
+            <span>{q.module}</span>
+            <b>{q.type}</b>
+            <em>
+              第 {index + 1}/{pool.length} 题
+            </em>
+          </div>
+          {q.context && <div className="passage">{q.context}</div>}
+          <h2>{q.prompt}</h2>
+          <div className="answer-options">
+            {q.options.map((o, i) => (
+              <button
+                disabled={checked}
+                key={o}
+                onClick={() => setChosen(i)}
+                className={`${chosen === i ? 'chosen ' : ''}${checked && i === q.answer ? 'correct ' : ''}${checked && chosen === i && i !== q.answer ? 'wrong' : ''}`}
+              >
+                <span>{String.fromCharCode(65 + i)}</span>
+                {o}
+              </button>
             ))}
           </div>
-          <p>你正在稳定接近目标。最近提升最快：阅读指示词判断 +15%。</p>
+          {checked && (
+            <div
+              className={chosen === q.answer ? 'feedback good' : 'feedback bad'}
+            >
+              <b>{chosen === q.answer ? '回答正确' : '回答错误'}</b>
+              <p>{q.explain}</p>
+            </div>
+          )}
+          <div className="q-actions">
+            <button className="ghost" onClick={next}>
+              跳过 / 下一题
+            </button>
+            {checked ? (
+              <button className="solid" onClick={next}>
+                下一题 <ChevronRight size={16} />
+              </button>
+            ) : (
+              <button
+                className="solid"
+                disabled={chosen === null}
+                onClick={answer}
+              >
+                提交答案
+              </button>
+            )}
+          </div>
         </section>
+        <aside className="session-card">
+          <h3>本轮进度</h3>
+          {pool.map((item, i) => {
+            const a = attempts.find((x) => x.id === item.id);
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setIndex(i);
+                  setChosen(null);
+                  setChecked(false);
+                  setStart(Date.now());
+                }}
+                className={i === index ? 'current' : ''}
+              >
+                <span>{i + 1}</span>
+                <div>
+                  <b>{item.module}</b>
+                  <small>{item.type}</small>
+                </div>
+                {a && (
+                  <em className={a.correct ? 'ok' : 'no'}>
+                    {a.correct ? '✓' : '×'}
+                  </em>
+                )}
+              </button>
+            );
+          })}
+          <p>提示：听解题当前使用文字稿模拟。真实音频与录音识别尚未接入。</p>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function WrongBook({
+  wrongs,
+  setWrongs,
+}: {
+  wrongs: Wrong[];
+  setWrongs: (x: Wrong[]) => void;
+}) {
+  const update = (id: number, patch: Partial<Wrong>) =>
+    setWrongs(wrongs.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+  return (
+    <div className="workspace">
+      <div className="simple-title">
+        <span className="kicker">自动收集</span>
+        <h1>错题本</h1>
+        <p>每次答错都会自动加入；请补充错误原因，系统会安排复习日期。</p>
+      </div>
+      {wrongs.length === 0 ? (
+        <Empty
+          text="还没有错题"
+          sub="去完成诊断或专项训练，答错的题会自动出现在这里。"
+        />
+      ) : (
+        <div className="wrong-grid">
+          {wrongs.map((w) => {
+            const q = questions.find((x) => x.id === w.id)!;
+            return (
+              <article
+                className={`wrong-real ${w.mastered ? 'mastered' : ''}`}
+                key={w.id}
+              >
+                <div className="q-meta">
+                  <span>{q.module}</span>
+                  <b>{q.type}</b>
+                  <em>
+                    {w.mastered
+                      ? '已掌握'
+                      : w.nextReview <= today()
+                        ? '今天复习'
+                        : w.nextReview + ' 复习'}
+                  </em>
+                </div>
+                <h3>{q.prompt}</h3>
+                <div className="compare">
+                  <p>
+                    <small>你的答案</small>
+                    <b>{q.options[w.chosen]}</b>
+                  </p>
+                  <p>
+                    <small>正确答案</small>
+                    <b>{q.options[q.answer]}</b>
+                  </p>
+                </div>
+                <p className="explain">{q.explain}</p>
+                <label>
+                  错误原因
+                  <select
+                    value={w.reason}
+                    onChange={(e) =>
+                      update(w.id, {
+                        reason: e.target.value,
+                        nextReview: later(2),
+                      })
+                    }
+                  >
+                    <option>待分析</option>
+                    {reasons.map((x) => (
+                      <option key={x}>{x}</option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="master"
+                  onClick={() =>
+                    update(w.id, {
+                      mastered: !w.mastered,
+                      nextReview: later(w.mastered ? 1 : 7),
+                    })
+                  }
+                >
+                  {w.mastered ? '重新加入复习' : '✓ 标记已掌握'}
+                </button>
+              </article>
+            );
+          })}
+        </div>
       )}
     </div>
   );
 }
 
-export default function Home() {
-  const [done, setDone] = useState<number[]>([]);
-  const [active, setActive] = useState('今日学习');
-  const progress = Math.round((done.length / tasks.length) * 100);
+function Score({
+  stats,
+  attempts,
+  go,
+}: {
+  stats: any;
+  attempts: Attempt[];
+  go: (x: string) => void;
+}) {
+  const modules = [
+    ['语言知识', Math.round(((stats.rates[0] + stats.rates[1]) / 2) * 0.6)],
+    ['阅读', Math.round(stats.rates[2] * 0.6)],
+    ['听力', Math.round(stats.rates[3] * 0.6)],
+  ];
+  const enough = attempts.length >= 6;
+  const total = modules.reduce((s, x) => s + Number(x[1]), 0);
   return (
-    <main className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark">一</span>
-          <div>
-            <b>一歩 N1</b>
-            <small>合格まで、あと一歩。</small>
+    <div className="workspace">
+      <div className="simple-title">
+        <span className="kicker">按答题正确率线性估算</span>
+        <h1>N1 分数模拟</h1>
+        <p>
+          这不是 JLPT
+          官方换算分，仅用于观察学习趋势；题量不足时不会伪装成可靠预测。
+        </p>
+      </div>
+      {!enough ? (
+        <Empty
+          text={`还差 ${6 - attempts.length} 道作答才能估算`}
+          sub="至少完成 6 道不同模块的题目后生成分数区间。"
+        >
+          <button className="solid" onClick={() => go('诊断测试')}>
+            继续诊断
+          </button>
+        </Empty>
+      ) : (
+        <>
+          <div className="score-real">
+            <div>
+              <span>当前估算</span>
+              <b>
+                {total}
+                <small>/180</small>
+              </b>
+              <em>
+                {total >= 100
+                  ? '总分达到合格线'
+                  : '距离合格线 ' + (100 - total) + ' 分'}
+              </em>
+            </div>
+            {modules.map(([n, s]) => (
+              <div key={String(n)}>
+                <span>{n}</span>
+                <b>
+                  {s}
+                  <small>/60</small>
+                </b>
+                <div>
+                  <i style={{ width: `${(Number(s) / 60) * 100}%` }} />
+                </div>
+                <em className={Number(s) >= 19 ? 'safe' : 'danger'}>
+                  {Number(s) >= 19 ? '高于单科线' : '低于单科 19 分'}
+                </em>
+              </div>
+            ))}
           </div>
-        </div>
-        <nav aria-label="主导航">
-          {nav.map(([Icon, label]) => (
-            <button
-              key={label}
-              onClick={() => setActive(label)}
-              className={active === label ? 'active' : ''}
-            >
-              <Icon size={19} />
-              <span>{label}</span>
-              {label === '错题本' && <em>12</em>}
-            </button>
-          ))}
-        </nav>
-        <div className="side-bottom">
-          <div className="countdown">
-            <span>JLPT N1 考试</span>
+          <div className="risk-real">
             <b>
-              还有 <strong>98</strong> 天
+              {modules.some((x) => Number(x[1]) < 19)
+                ? '⚠ 存在单科不合格风险'
+                : '✓ 当前无单科线风险'}
             </b>
-            <div>
-              <i style={{ width: '38%' }} />
-            </div>
-            <small>分模块训练期 · 第 3 周</small>
+            <p>
+              总分达到 100 仍不等于合格：语言知识、阅读、听力每科都必须达到 19
+              分。
+            </p>
           </div>
-          <button className="assistant-link">
-            <Sparkles size={18} /> AI 学习助手
-          </button>
-          <div className="profile">
-            <span>刘</span>
-            <div>
-              <b>刘同学</b>
-              <small>目标：2026 年 12 月</small>
-            </div>
-            <ChevronRight size={16} />
-          </div>
-        </div>
-      </aside>
-      <section className="content">
-        <header className="topbar">
-          <div className="mobile-brand">一歩 N1</div>
-          <div className="streak">
-            <Flame size={18} /> 连续学习 <b>12</b> 天
-          </div>
-          <button className="icon-button" aria-label="消息">
-            ●
-          </button>
-        </header>
-        {active !== "今日学习" ? (
-          <FeaturePage active={active} onBack={() => setActive("今日学习")} />
-        ) : (
-        <div className="page">
-          <div className="greeting">
-            <div>
-              <p>8月29日 · 星期六</p>
-              <h1>下午好，刘同学。</h1>
-              <span>今天的学习计划已经准备好了，一起完成吧。</span>
-            </div>
-            <div className="mini-goal">
-              <Trophy size={22} />
-              <div>
-                <small>本周目标</small>
-                <b>已学习 124 / 180 分钟</b>
-              </div>
-              <div className="ring">69%</div>
-            </div>
-          </div>
-          <section className="score-card">
-            <div className="score-intro">
-              <span className="eyebrow">当前 N1 预计得分</span>
-              <div>
-                <strong>108</strong>
-                <i>/ 180</i>
-              </div>
-              <p>
-                <TrendingUp size={16} /> 比上次提高 <b>7 分</b>
-              </p>
-            </div>
-            <div className="score-bars">
-              {[
-                ['语言知识', 38, 60, '#48b58a'],
-                ['阅读', 34, 60, '#f0b84b'],
-                ['听力', 36, 60, '#6d8fe8'],
-              ].map(([label, val, max, color]) => (
-                <div key={String(label)}>
-                  <span>
-                    {label}
-                    <b>
-                      {val}
-                      <i> / {max}</i>
-                    </b>
-                  </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Data({
+  stats,
+  attempts,
+  wrongs,
+}: {
+  stats: any;
+  attempts: Attempt[];
+  wrongs: Wrong[];
+}) {
+  const moduleNames: Module[] = ['文字・語彙', '文法', '読解', '聴解'];
+  return (
+    <div className="workspace">
+      <div className="simple-title">
+        <span className="kicker">只展示真实记录</span>
+        <h1>学习数据</h1>
+        <p>
+          共完成 {attempts.length} 道题，记录 {wrongs.length} 道错题。
+        </p>
+      </div>
+      {attempts.length === 0 ? (
+        <Empty
+          text="暂无学习数据"
+          sub="完成第一道题后，这里会开始生成正确率和速度统计。"
+        />
+      ) : (
+        <div className="data-real">
+          <section className="white-card">
+            <h2>各模块表现</h2>
+            {moduleNames.map((m, i) => {
+              const rows = attempts.filter(
+                (a) => questions.find((q) => q.id === a.id)?.module === m,
+              );
+              const avg = rows.length
+                ? Math.round(
+                    rows.reduce((s, x) => s + x.seconds, 0) / rows.length,
+                  )
+                : 0;
+              return (
+                <div className="module-row" key={m}>
+                  <b>{m}</b>
                   <div>
-                    <i
-                      style={{
-                        width: `${(Number(val) / Number(max)) * 100}%`,
-                        background: String(color),
-                      }}
-                    />
+                    <i style={{ width: `${stats.rates[i]}%` }} />
                   </div>
-                </div>
-              ))}
-            </div>
-            <div className="pass-status">
-              <Check size={16} />
-              <div>
-                <b>已达到合格线</b>
-                <span>各科均高于 19 分</span>
-              </div>
-              <button>
-                查看分析 <ArrowRight size={15} />
-              </button>
-            </div>
-          </section>
-          <div className="main-grid">
-            <section className="plan-card card">
-              <div className="section-head">
-                <div>
-                  <span className="eyebrow">DAILY PLAN</span>
-                  <h2>今天的 30 分钟</h2>
-                </div>
-                <div className="plan-progress">
-                  <b>{progress}%</b>
                   <span>
-                    已完成 {done.length}/{tasks.length}
+                    {rows.length
+                      ? `${stats.rates[i]}% · 平均 ${avg} 秒`
+                      : '未作答'}
                   </span>
                 </div>
-              </div>
-              <div className="plan-line">
-                <i style={{ width: `${progress}%` }} />
-              </div>
-              <div className="tasks">
-                {tasks.map((task, index) => {
-                  const Icon = task.icon,
-                    checked = done.includes(index);
-                  return (
-                    <button
-                      key={task.label}
-                      onClick={() =>
-                        setDone(
-                          checked
-                            ? done.filter((x) => x !== index)
-                            : [...done, index],
-                        )
-                      }
-                      className={checked ? 'task done' : 'task'}
-                    >
-                      <span className={`task-icon ${task.color}`}>
-                        <Icon size={20} />
-                      </span>
-                      <div>
-                        <b>{task.label}</b>
-                        <small>{task.detail}</small>
-                      </div>
-                      <span className="task-time">
-                        <Clock3 size={14} />
-                        {task.time} 分钟
-                      </span>
-                      <span className="check">
-                        {checked && <Check size={15} />}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              <button className="primary-action">
-                <Play size={17} fill="currentColor" /> 开始今日学习{' '}
-                <span>预计 30 分钟</span>
-              </button>
-            </section>
-            <aside className="right-stack">
-              <section className="weak-card card">
-                <div className="section-head">
-                  <div>
-                    <span className="eyebrow">WEAK POINTS</span>
-                    <h2>现在最该补这里</h2>
+              );
+            })}
+          </section>
+          <section className="white-card">
+            <h2>错误原因</h2>
+            {reasons.map((r) => {
+              const n = wrongs.filter((w) => w.reason === r).length;
+              return (
+                n > 0 && (
+                  <div className="reason-row" key={r}>
+                    <span>{r}</span>
+                    <b>{n} 次</b>
                   </div>
-                  <button>全部</button>
-                </div>
-                <div className="weak-list">
-                  {[
-                    ['01', 'N1 逆接语法', '正确率 48%', '文法'],
-                    ['02', '新闻类词汇', '混淆 8 次', '词汇'],
-                    ['03', '长文时间管理', '平均超时 6 分钟', '阅读'],
-                  ].map(([n, title, sub, tag]) => (
-                    <button key={n}>
-                      <span>{n}</span>
-                      <div>
-                        <b>{title}</b>
-                        <small>{sub}</small>
-                      </div>
-                      <em>{tag}</em>
-                      <ChevronRight size={16} />
-                    </button>
-                  ))}
-                </div>
-              </section>
-              <section className="ai-card">
-                <div className="ai-icon">
-                  <MessageCircleMore size={22} />
-                </div>
-                <div>
-                  <span>AI N1 学习助手</span>
-                  <h3>哪里不明白，随时问我</h3>
-                  <p>基于你的错题和教材内容回答</p>
-                </div>
-                <button aria-label="打开 AI 助手">
-                  <ArrowRight size={18} />
-                </button>
-              </section>
-            </aside>
-          </div>
-          <section className="insight">
-            <div className="insight-icon">
-              <Headphones size={22} />
-            </div>
-            <div>
-              <span>今日学习洞察</span>
-              <p>
-                你的知识正确率已接近合格水平，但
-                <strong>阅读速度比合格者慢 18%</strong>。建议今天优先完成 7
-                分钟限时阅读。
-              </p>
-            </div>
-            <button>
-              开始限时训练 <ArrowRight size={15} />
-            </button>
+                )
+              );
+            })}
+            <p className="note">
+              仍有 {wrongs.filter((w) => w.reason === '待分析').length}{' '}
+              道错题未选择错误原因。
+            </p>
           </section>
         </div>
-        )}
-      </section>
-    </main>
+      )}
+    </div>
+  );
+}
+
+function Empty({
+  text,
+  sub,
+  children,
+}: {
+  text: string;
+  sub: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="empty-real">
+      <Target size={30} />
+      <b>{text}</b>
+      <p>{sub}</p>
+      {children}
+    </div>
   );
 }
