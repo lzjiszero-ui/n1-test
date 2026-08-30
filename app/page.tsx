@@ -169,15 +169,30 @@ const practiceQuestions: Question[] = [
     targetSec: 35,
   },
 ];
+const expandNumberedOptions = (items: string[]) => {
+  if (items.length >= 3) return items.map((item) => item.trim());
+  const expanded = items.flatMap((item) =>
+    item
+      .split(/[\s　]+[2-4][.．、:：][\s　]*/)
+      .map((part) => part.trim())
+      .filter(Boolean),
+  );
+  return expanded.length > items.length ? expanded : items;
+};
 const questions: Question[] = [
   ...practiceQuestions,
-  ...(importedWrongQuestions as unknown as Question[]).map((question) => ({
-    ...question,
-    prompt: question.prompt || question.options[0],
-    options: question.prompt ? question.options : question.options.slice(1),
-    answer: question.prompt ? question.answer : Math.max(0, question.answer - 1),
-    targetSec: 60,
-  })),
+  ...(importedWrongQuestions as unknown as Question[]).map((question) => {
+    const rawOptions = question.prompt
+      ? question.options
+      : question.options.slice(1);
+    return {
+      ...question,
+      prompt: question.prompt || question.options[0],
+      options: expandNumberedOptions(rawOptions),
+      answer: question.answer,
+      targetSec: 60,
+    };
+  }),
 ];
 const reasons = [
   '不认识单词',
@@ -219,6 +234,160 @@ const rankJapaneseVoices = (voices: SpeechSynthesisVoice[]) =>
   voices
     .filter((voice) => voice.lang.toLowerCase().startsWith('ja'))
     .sort((a, b) => voiceQualityScore(b) - voiceQualityScore(a));
+
+const readingFocusTerm = (question: Question) => {
+  if (question.type !== '漢字の読み方') return null;
+  const correctLine = question.explain
+    .split('\n')
+    .find((line) => line.trim().startsWith(`${question.answerRaw}：`));
+  if (correctLine) {
+    const lineCandidates = [
+      ...correctLine.matchAll(/[\p{Script=Han}々]+[\p{Script=Hiragana}]*/gu),
+    ]
+      .map((match) => match[0])
+      .filter((candidate) => question.prompt.includes(candidate))
+      .sort((a, b) => b.length - a.length);
+    if (lineCandidates[0]) return lineCandidates[0];
+  }
+  const source = `${question.answerText || ''}\n${question.explain}`;
+  const candidates = [
+    ...[
+      ...source.matchAll(
+        /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}々]+)[（(][ぁ-んァ-ヶー]+/gu,
+      ),
+    ].map((match) => match[1]),
+    ...[...source.matchAll(/「([^」]+)」/g)].map((match) => match[1]),
+  ];
+  return (
+    candidates
+      .filter((candidate) => question.prompt.includes(candidate))
+      .sort((a, b) => b.length - a.length)[0] || null
+  );
+};
+
+const originalQuestionLabel = (question: Question) => {
+  if (!question.sourceQuestion) return null;
+  return /^\d+$/.test(question.sourceQuestion)
+    ? `第 ${question.sourceQuestion} 题`
+    : question.sourceQuestion;
+};
+
+const displayPrompt = (question: Question) => {
+  if (!question.sourceQuestion || /^\d+$/.test(question.sourceQuestion))
+    return question.prompt;
+  return question.prompt.replace(
+    new RegExp(
+      `^${question.sourceQuestion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[.．]\\s*`,
+    ),
+    '',
+  );
+};
+
+const inflectedSurface = (term: string, text: string) => {
+  if (text.includes(term)) return term;
+  if (term.length < 2) return null;
+  const stem = term.slice(0, -1);
+  const endings: Record<string, string> = {
+    い: '(?:く(?:て|ない|なって|なる)?|かった|ければ|さ|い)',
+    う: '(?:って|った|わ|い|う)',
+    く: '(?:いて|いた|か|き|く|けば)',
+    ぐ: '(?:いで|いだ|が|ぎ|ぐ|げば)',
+    す: '(?:して|した|さ|し|す|せば)',
+    つ: '(?:って|った|た|ち|つ|てば)',
+    ぬ: '(?:んで|んだ|な|に|ぬ|ねば)',
+    ぶ: '(?:んで|んだ|ば|び|ぶ|べば)',
+    む: '(?:んで|んだ|ま|み|む|めば)',
+    る: '(?:って|った|られ|れば|ろ|ない|そう|て|た|り|る)',
+  };
+  const ending = endings[term.slice(-1)];
+  if (!ending) return text.includes(stem) ? stem : null;
+  return text.match(new RegExp(`${stem}${ending}`))?.[0] || null;
+};
+
+const synonymFocusSurface = (question: Question) => {
+  if (question.type !== '言い換え類義') return null;
+  const overrides: Record<number, string> = {
+    10026: 'おろそか',
+    10027: '請け負う',
+    10052: 'しきたり',
+  };
+  const override = overrides[question.id];
+  if (override) return inflectedSurface(override, question.prompt);
+  const quoted = [...question.explain.matchAll(/「([^」]+)」/g)]
+    .map((match) => inflectedSurface(match[1], question.prompt))
+    .filter((candidate): candidate is string => Boolean(candidate))
+    .sort((a, b) => b.length - a.length)[0];
+  if (quoted) return quoted;
+  const answer = question.answerText || '';
+  if (!answer || /^正确/.test(answer)) return null;
+  let prefix = 0;
+  while (
+    prefix < question.prompt.length &&
+    prefix < answer.length &&
+    question.prompt[prefix] === answer[prefix]
+  )
+    prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < question.prompt.length - prefix &&
+    suffix < answer.length - prefix &&
+    question.prompt[question.prompt.length - 1 - suffix] ===
+      answer[answer.length - 1 - suffix]
+  )
+    suffix += 1;
+  return question.prompt
+    .slice(prefix, question.prompt.length - suffix)
+    .trim()
+    .replace(/^[、。\s]+|[、。\s]+$/g, '');
+};
+
+const markedPrompt = (question: Question) => {
+  const focus = readingFocusTerm(question) || synonymFocusSurface(question);
+  const prompt = displayPrompt(question);
+  if (!focus) return prompt;
+  const start = prompt.indexOf(focus);
+  return (
+    <>
+      {prompt.slice(0, start)}
+      <span className="reading-focus">{focus}</span>
+      {prompt.slice(start + focus.length)}
+    </>
+  );
+};
+
+const usageFocusSurface = (question: Question, option: string) => {
+  if (question.type !== '用法') return null;
+  return inflectedSurface(question.prompt.trim(), option);
+};
+
+const markedOption = (question: Question, option: string) => {
+  const focus = usageFocusSurface(question, option);
+  if (!focus) return option;
+  const start = option.indexOf(focus);
+  return (
+    <>
+      {option.slice(0, start)}
+      <span className="option-focus">{focus}</span>
+      {option.slice(start + focus.length)}
+    </>
+  );
+};
+
+const optionLayoutClass = (question: Question) => {
+  const lengths = question.options.map((option) => option.trim().length);
+  const longest = Math.max(...lengths, 0);
+  const average = lengths.length
+    ? lengths.reduce((sum, length) => sum + length, 0) / lengths.length
+    : 0;
+  if (
+    question.options.some((option) => /[。！？!?]/.test(option.trim())) ||
+    average >= 18 ||
+    longest >= 28
+  )
+    return 'sentence-options';
+  if (longest >= 11 || average >= 9) return 'balanced-options';
+  return 'compact-options';
+};
 
 async function saveWrongs(deviceId: string, wrongs: Wrong[]) {
   const items = wrongs.map((wrong) => {
@@ -434,7 +603,9 @@ export default function Home() {
             <button
               className="theme-toggle"
               onClick={toggleTheme}
-              aria-label={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+              aria-label={
+                theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'
+              }
               title={theme === 'dark' ? '浅色模式' : '深色模式'}
             >
               {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
@@ -903,7 +1074,14 @@ function Quiz({
           {q.context && q.module === '聴解' && (showTranscript || checked) && (
             <div className="passage listening-transcript">{q.context}</div>
           )}
-          <h2>{q.prompt}</h2>
+          <h2>
+            {originalQuestionLabel(q) && (
+              <span className="original-question-number">
+                {originalQuestionLabel(q)}
+              </span>
+            )}
+            {markedPrompt(q)}
+          </h2>
           <div className="answer-options">
             {q.options.map((o, i) => (
               <button
@@ -995,6 +1173,62 @@ function WrongBook({
 }) {
   const [statusFilter, setStatusFilter] = useState('全部');
   const [moduleFilter, setModuleFilter] = useState('全部');
+  const [yearFilter, setYearFilter] = useState('全部');
+  const [contentView, setContentView] = useState<'仅题目与选项' | '全部信息'>(
+    '仅题目与选项',
+  );
+  const [revealedIds, setRevealedIds] = useState<number[]>([]);
+  const [reviewChoices, setReviewChoices] = useState<Record<number, number>>(
+    {},
+  );
+  const toggleReview = (id: number, optionIndex: number) => {
+    const isSameOpenChoice =
+      revealedIds.includes(id) && reviewChoices[id] === optionIndex;
+    setRevealedIds((current) =>
+      isSameOpenChoice
+        ? current.filter((revealedId) => revealedId !== id)
+        : current.includes(id)
+          ? current
+          : [...current, id],
+    );
+    setReviewChoices((current) => {
+      if (isSameOpenChoice) {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      }
+      return { ...current, [id]: optionIndex };
+    });
+  };
+  const collapseReview = (id: number) => {
+    setRevealedIds((current) =>
+      current.filter((revealedId) => revealedId !== id),
+    );
+    setReviewChoices((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  };
+  const sourcePeriod = (wrong: Wrong) => {
+    const source = questions.find(
+      (question) => question.id === wrong.id,
+    )?.source;
+    return source?.match(/(?:19|20)\d{2}年\d{1,2}月/)?.[0] || '年份未知';
+  };
+  const sourcePeriods = useMemo(
+    () =>
+      [...new Set(wrongs.map(sourcePeriod))].sort((a, b) => {
+        if (a === '年份未知') return 1;
+        if (b === '年份未知') return -1;
+        const sortable = (period: string) => {
+          const match = period.match(/((?:19|20)\d{2})年(\d{1,2})月/);
+          return match ? Number(match[1]) * 100 + Number(match[2]) : 0;
+        };
+        return sortable(b) - sortable(a);
+      }),
+    [wrongs],
+  );
   const update = (id: number, patch: Partial<Wrong>) =>
     setWrongs(wrongs.map((w) => (w.id === id ? { ...w, ...patch } : w)));
   const filtered = wrongs.filter((wrong) => {
@@ -1002,8 +1236,11 @@ function WrongBook({
     const statusOk =
       statusFilter === '全部' ||
       (statusFilter === '已掌握' ? wrong.mastered : !wrong.mastered);
+    const yearOk = yearFilter === '全部' || sourcePeriod(wrong) === yearFilter;
     return (
-      statusOk && (moduleFilter === '全部' || question.module === moduleFilter)
+      statusOk &&
+      yearOk &&
+      (moduleFilter === '全部' || question.module === moduleFilter)
     );
   });
   return (
@@ -1047,6 +1284,40 @@ function WrongBook({
             ),
           )}
         </div>
+        <div>
+          <b>真题年份</b>
+          <button
+            className={yearFilter === '全部' ? 'active' : ''}
+            onClick={() => setYearFilter('全部')}
+          >
+            全部
+          </button>
+          {sourcePeriods.map((year) => (
+            <button
+              key={year}
+              className={yearFilter === year ? 'active' : ''}
+              onClick={() => setYearFilter(year)}
+            >
+              {year}
+            </button>
+          ))}
+        </div>
+        <div>
+          <b>显示内容</b>
+          {(['仅题目与选项', '全部信息'] as const).map((view) => (
+            <button
+              key={view}
+              className={contentView === view ? 'active' : ''}
+              onClick={() => {
+                setContentView(view);
+                setRevealedIds([]);
+                setReviewChoices({});
+              }}
+            >
+              {view}
+            </button>
+          ))}
+        </div>
       </div>
       {wrongs.length === 0 ? (
         <Empty
@@ -1059,102 +1330,141 @@ function WrongBook({
         <div className="wrong-grid">
           {filtered.map((w) => {
             const q = questions.find((x) => x.id === w.id)!;
+            const individuallyRevealed = revealedIds.includes(q.id);
+            const showFull = contentView === '全部信息' || individuallyRevealed;
             return (
               <article
-                className={`wrong-real ${w.mastered ? 'mastered' : ''}`}
+                className={`wrong-real ${w.mastered ? 'mastered' : ''} ${
+                  individuallyRevealed ? 'review-revealed' : ''
+                }`}
                 key={w.id}
               >
-                <div className="q-meta">
-                  <span>{q.module}</span>
-                  <b>{q.type}</b>
-                  <em>
-                    {w.mastered
-                      ? '已掌握'
-                      : w.nextReview <= today()
-                        ? '今天复习'
-                        : w.nextReview + ' 复习'}
-                  </em>
-                </div>
-                <h3>{q.prompt}</h3>
-                {q.source && (
+                {showFull && (
+                  <div className="q-meta">
+                    <span>{q.module}</span>
+                    <b>{q.type}</b>
+                    <em>
+                      {w.mastered
+                        ? '已掌握'
+                        : w.nextReview <= today()
+                          ? '今天复习'
+                          : w.nextReview + ' 复习'}
+                    </em>
+                  </div>
+                )}
+                <h3>
+                  {originalQuestionLabel(q) && (
+                    <span className="original-question-number">
+                      {originalQuestionLabel(q)}
+                    </span>
+                  )}
+                  {markedPrompt(q)}
+                </h3>
+                {showFull && q.source && (
                   <p className="source-ref">
                     {q.source} · 第 {q.sourceQuestion} 题
                     {q.frequency ? ` · 错误 ${q.frequency} 次` : ''}
                   </p>
                 )}
                 {q.options.length > 0 && (
-                  <ol className="imported-options">
+                  <ol className={`imported-options ${optionLayoutClass(q)}`}>
                     {q.options.map((option, index) => (
-                      <li key={`${q.id}-${index}`}>{option}</li>
+                      <li key={`${q.id}-${index}`}>
+                        {contentView === '仅题目与选项' ? (
+                          <button
+                            className={`review-option ${
+                              reviewChoices[q.id] === index ? 'selected' : ''
+                            }`}
+                            onClick={() => toggleReview(q.id, index)}
+                            aria-expanded={individuallyRevealed}
+                          >
+                            {markedOption(q, option)}
+                          </button>
+                        ) : (
+                          markedOption(q, option)
+                        )}
+                      </li>
                     ))}
                   </ol>
                 )}
-                <div className="compare">
-                  <p>
-                    <small>你的答案</small>
-                    <b>
-                      {w.chosen >= 0
-                        ? q.options[w.chosen]
-                        : '原表未记录所选答案'}
-                    </b>
-                  </p>
-                  <p>
-                    <small>正确答案</small>
-                    <b>{q.answerText || q.options[q.answer]}</b>
-                  </p>
-                </div>
-                <p className="explain">{q.explain}</p>
-                {(q.translation || q.distractorExplain || q.expansion) && (
-                  <details className="wrong-details">
-                    <summary>查看翻译与完整解析</summary>
-                    {q.translation && (
-                      <section>
-                        <b>题目翻译</b>
-                        <p>{q.translation}</p>
-                      </section>
+                {showFull && (
+                  <>
+                    <div className="compare">
+                      <p>
+                        <small>你的答案</small>
+                        <b>
+                          {w.chosen >= 0
+                            ? q.options[w.chosen]
+                            : '原表未记录所选答案'}
+                        </b>
+                      </p>
+                      <p>
+                        <small>正确答案</small>
+                        <b>{q.answerText || q.options[q.answer]}</b>
+                      </p>
+                    </div>
+                    <p className="explain">{q.explain}</p>
+                    {(q.translation || q.distractorExplain || q.expansion) && (
+                      <details className="wrong-details">
+                        <summary>查看翻译与完整解析</summary>
+                        {q.translation && (
+                          <section>
+                            <b>题目翻译</b>
+                            <p>{q.translation}</p>
+                          </section>
+                        )}
+                        {q.distractorExplain && (
+                          <section>
+                            <b>错误选项讲解</b>
+                            <p>{q.distractorExplain}</p>
+                          </section>
+                        )}
+                        {q.expansion && (
+                          <section>
+                            <b>知识拓展</b>
+                            <p>{q.expansion}</p>
+                          </section>
+                        )}
+                      </details>
                     )}
-                    {q.distractorExplain && (
-                      <section>
-                        <b>错误选项讲解</b>
-                        <p>{q.distractorExplain}</p>
-                      </section>
+                    <label>
+                      错误原因
+                      <select
+                        value={w.reason}
+                        onChange={(e) =>
+                          update(w.id, {
+                            reason: e.target.value,
+                            nextReview: later(2),
+                          })
+                        }
+                      >
+                        <option>待分析</option>
+                        {reasons.map((x) => (
+                          <option key={x}>{x}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      className="master"
+                      onClick={() =>
+                        update(w.id, {
+                          mastered: !w.mastered,
+                          nextReview: later(w.mastered ? 1 : 7),
+                        })
+                      }
+                    >
+                      {w.mastered ? '重新加入复习' : '✓ 标记已掌握'}
+                    </button>
+                    {individuallyRevealed && (
+                      <button
+                        className="collapse-review"
+                        onClick={() => collapseReview(q.id)}
+                      >
+                        收起答案解析
+                      </button>
                     )}
-                    {q.expansion && (
-                      <section>
-                        <b>知识拓展</b>
-                        <p>{q.expansion}</p>
-                      </section>
-                    )}
-                  </details>
+                  </>
                 )}
-                <label>
-                  错误原因
-                  <select
-                    value={w.reason}
-                    onChange={(e) =>
-                      update(w.id, {
-                        reason: e.target.value,
-                        nextReview: later(2),
-                      })
-                    }
-                  >
-                    <option>待分析</option>
-                    {reasons.map((x) => (
-                      <option key={x}>{x}</option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  className="master"
-                  onClick={() =>
-                    update(w.id, {
-                      mastered: !w.mastered,
-                      nextReview: later(w.mastered ? 1 : 7),
-                    })
-                  }
-                >
-                  {w.mastered ? '重新加入复习' : '✓ 标记已掌握'}
-                </button>
               </article>
             );
           })}

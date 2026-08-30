@@ -5,6 +5,12 @@
   --green: #205e49;
   --line: #e5ebe7;
   --paper: #f5f7f4;
+  --font-ui:
+    var(--font-geist-sans), 'Noto Sans JP', 'Yu Gothic UI', 'Yu Gothic',
+    'Noto Sans SC', sans-serif;
+  --font-study:
+    'Yu Mincho', YuMincho, 'Hiragino Mincho ProN', 'Noto Serif JP',
+    'Noto Serif SC', serif;
 }
 * {
   box-sizing: border-box;
@@ -13,7 +19,9 @@ body {
   margin: 0;
   background: var(--paper);
   color: var(--ink);
-  font-family: var(--font-geist-sans), 'Noto Sans SC', 'Yu Gothic', sans-serif;
+  font-family: var(--font-ui);
+  font-variant-numeric: proportional-nums;
+  text-rendering: optimizeLegibility;
 }
 button {
   font: inherit;
@@ -1629,10 +1637,12 @@ button {
   background: #f8faf9;
 }
 .question-card h2 {
-  font:
-    19px Georgia,
-    'Noto Serif SC',
-    serif;
+  font-family: var(--font-study);
+  font-size: 19px;
+  font-variant-numeric: proportional-nums;
+  font-feature-settings:
+    'palt' 1,
+    'kern' 1;
   line-height: 1.7;
   margin: 24px 0;
 }
@@ -1646,7 +1656,13 @@ button {
   border-radius: 10px;
   padding: 11px 13px;
   text-align: left;
-  font-size: 11px;
+  font-family: var(--font-study);
+  font-size: 16px;
+  line-height: 1.65;
+  font-variant-numeric: proportional-nums;
+  font-feature-settings:
+    'palt' 1,
+    'kern' 1;
   cursor: pointer;
 }
 .answer-options button span {
@@ -1785,18 +1801,23 @@ button {
   align-items: center;
   gap: 7px;
   flex-wrap: wrap;
+  position: relative;
+  padding-left: 69px;
 }
 .wrong-filters b {
-  font-size: 9px;
+  font-size: 12px;
   color: #75827d;
   width: 62px;
+  position: absolute;
+  left: 0;
+  top: 8px;
 }
 .wrong-filters button {
   border: 1px solid #e1e8e4;
   background: #f8faf9;
   border-radius: 7px;
-  padding: 6px 10px;
-  font-size: 9px;
+  padding: 7px 11px;
+  font-size: 12px;
   color: #63716b;
   cursor: pointer;
 }
@@ -1822,28 +1843,125 @@ button {
   opacity: 0.6;
 }
 .wrong-real h3 {
-  font:
-    15px Georgia,
-    'Noto Serif SC',
-    serif;
+  font-family: var(--font-study);
+  font-size: 15px;
   line-height: 1.6;
+  font-variant-numeric: proportional-nums;
+  font-feature-settings:
+    'palt' 1,
+    'kern' 1;
+}
+.reading-focus {
+  text-decoration: underline;
+  text-decoration-color: #c98248;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+  font-weight: 750;
+}
+.option-focus {
+  text-decoration: underline;
+  text-decoration-color: #c98248;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  font-weight: 750;
+}
+.original-question-number {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 9px;
+  padding: 2px 7px;
+  border: 1px solid #c9ddd4;
+  border-radius: 6px;
+  background: #eef7f3;
+  color: var(--green);
+  font-family: var(--font-ui);
+  font-size: 9px;
+  font-weight: 750;
+  vertical-align: 2px;
+  white-space: nowrap;
 }
 .source-ref {
   margin: -5px 0 12px;
   color: #76827d;
   font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
 }
 .imported-options {
+  list-style: decimal;
   margin: 0 0 14px;
   padding: 12px 12px 12px 34px;
   background: #f7f9f8;
   border: 1px solid #e5ebe8;
   border-radius: 8px;
-  font-size: 10px;
+  font-family: var(--font-study);
+  font-size: 15px;
   line-height: 1.65;
+  font-variant-numeric: proportional-nums;
+  font-feature-settings:
+    'palt' 1,
+    'kern' 1;
+}
+.imported-options li::marker {
+  color: var(--green);
+  font-family: var(--font-study);
+  font-weight: 750;
 }
 .imported-options li + li {
   margin-top: 3px;
+}
+.imported-options.compact-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  column-gap: 24px;
+  row-gap: 7px;
+}
+.imported-options.balanced-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 38px;
+  row-gap: 9px;
+}
+.imported-options.balanced-options li {
+  margin-top: 0;
+  padding-right: 12px;
+}
+.imported-options.compact-options li {
+  margin-top: 0;
+  padding-right: 8px;
+}
+.review-option {
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px 6px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.review-option:hover {
+  background: #e9f3ee;
+}
+.review-option.selected {
+  background: #dfeee7;
+  color: var(--green);
+  font-weight: 750;
+}
+.wrong-real.review-revealed {
+  border-color: #8ebda8;
+  box-shadow: 0 8px 24px #1f5d4610;
+}
+.collapse-review {
+  margin-top: 12px;
+  margin-left: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7f9f8;
+  padding: 8px 10px;
+  color: #68756f;
+  font-size: 9px;
+  cursor: pointer;
 }
 .compare {
   display: grid;
@@ -2056,6 +2174,20 @@ button {
 :root[data-theme='dark'] .wrong-filters button.active {
   background: #293b33;
 }
+:root[data-theme='dark'] .wrong-filters button span {
+  background: #3a4d44;
+  color: #e4f0ea;
+}
+:root[data-theme='dark'] .real-side nav em {
+  background: #4a302b;
+  color: #ffc0ad;
+}
+:root[data-theme='dark'] .wrong-filters b,
+:root[data-theme='dark'] .q-meta b,
+:root[data-theme='dark'] .q-meta em,
+:root[data-theme='dark'] .wrong-real label {
+  color: #b7c5be;
+}
 :root[data-theme='dark'] .q-meta span,
 :root[data-theme='dark'] .practice-modules > button.active > span,
 :root[data-theme='dark'] .answer-options button.chosen {
@@ -2097,6 +2229,30 @@ button {
 :root[data-theme='dark'] .master {
   background: #23392f;
   border-color: #3f6755;
+}
+:root[data-theme='dark'] .original-question-number {
+  background: #23392f;
+  border-color: #3f6755;
+}
+:root[data-theme='dark'] .review-option:hover {
+  background: #293b33;
+}
+:root[data-theme='dark'] .review-option.selected {
+  background: #30483d;
+  color: #a2dfc3;
+}
+:root[data-theme='dark'] .wrong-real.review-revealed {
+  border-color: #568d74;
+  box-shadow: 0 8px 24px #00000030;
+}
+:root[data-theme='dark'] .collapse-review {
+  background: #202b26;
+  color: #bdc9c3;
+}
+@media (max-width: 700px) {
+  .imported-options.balanced-options {
+    grid-template-columns: 1fr;
+  }
 }
 :root[data-theme='dark'] .audio-play {
   color: #352d19;
