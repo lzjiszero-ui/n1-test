@@ -7,11 +7,13 @@ import hostingConfig from './.openai/hosting.json';
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   '00000000-0000-4000-8000-000000000000';
 
+// 从托管配置中读取网站绑定的数据库和文件存储名称。
 const { d1, r2 } = hostingConfig;
 
-// macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
+// macOS 的 Codex 沙盒无法使用系统文件事件，因此预览时改用轮询检测代码变化。
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
 
+// 把应用入口、数据库和文件存储转换为 Cloudflare 本地运行所需的配置。
 const localBindingConfig = {
   main: 'vinext/server/fetch-handler',
   compatibility_flags: ['nodejs_compat'],
@@ -34,14 +36,14 @@ const localBindingConfig = {
     : [],
 };
 
+// 组合 Next.js 兼容层、站点托管和 Cloudflare 插件，形成最终的开发/构建配置。
 export default defineConfig(async () => {
-  // Keep Wrangler and Miniflare state project-local. These are non-secret tool
-  // settings; application environment belongs in ignored `.env*` files.
+  // 把 Wrangler 和 Miniflare 的运行记录留在项目内；应用密钥仍应放在忽略提交的 .env 文件中。
   process.env.WRANGLER_WRITE_LOGS ??= 'false';
   process.env.WRANGLER_LOG_PATH ??= '.wrangler/logs';
   process.env.MINIFLARE_REGISTRY_PATH ??= '.wrangler/registry';
 
-  // Wrangler snapshots its log path while the Cloudflare plugin is imported.
+  // Wrangler 会在插件加载时确定日志路径，所以必须先完成上面的环境设置再导入插件。
   const { cloudflare } = await import('@cloudflare/vite-plugin');
 
   return {

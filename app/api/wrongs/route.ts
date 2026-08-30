@@ -1,8 +1,11 @@
 import { env } from 'cloudflare:workers';
 
 type DbEnv = { DB: D1Database };
+
+// 取得 Cloudflare 提供的 D1 数据库连接，下面三个接口都会通过它读写错题。
 const db = () => (env as unknown as DbEnv).DB;
 
+// 读取某台设备保存的全部错题，并优先返回尚未掌握、最近更新的记录。
 export async function GET(request: Request) {
   const deviceId = new URL(request.url).searchParams.get('deviceId');
   if (!deviceId)
@@ -15,6 +18,7 @@ export async function GET(request: Request) {
   return Response.json(result.results);
 }
 
+// 保存错题列表：已有题目会更新复习状态，新题目则会新增一条记录。
 export async function POST(request: Request) {
   const body = (await request.json()) as {
     deviceId?: string;
@@ -60,6 +64,7 @@ export async function POST(request: Request) {
   return Response.json({ ok: true, count: body.items.length });
 }
 
+// 清空指定设备的错题记录，供“重置学习数据”功能使用。
 export async function DELETE(request: Request) {
   const { deviceId } = (await request.json()) as { deviceId?: string };
   if (!deviceId)

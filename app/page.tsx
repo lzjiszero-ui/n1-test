@@ -169,6 +169,7 @@ const practiceQuestions: Question[] = [
     targetSec: 35,
   },
 ];
+/** 把题库中挤在一行的“1、2、3、4”选项拆成独立选项，供页面正确编号和排版。 */
 const expandNumberedOptions = (items: string[]) => {
   if (items.length >= 3) return items.map((item) => item.trim());
   const expanded = items.flatMap((item) =>
@@ -212,13 +213,16 @@ const nav = [
   [Trophy, '分数模拟'],
   [TrendingUp, '学习数据'],
 ] as const;
+/** 返回今天的日期（YYYY-MM-DD），用于判断某道错题今天是否需要复习。 */
 const today = () => new Date().toISOString().slice(0, 10);
+/** 从今天向后推指定天数，生成下一次复习日期。 */
 const later = (days: number) => {
   const d = new Date();
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 };
 
+/** 给系统里的日语语音打分，优先选择自然、清晰的日语声音。 */
 const voiceQualityScore = (voice: SpeechSynthesisVoice) => {
   const name = voice.name.toLowerCase();
   let score = voice.lang.toLowerCase().startsWith('ja') ? 100 : 0;
@@ -230,11 +234,13 @@ const voiceQualityScore = (voice: SpeechSynthesisVoice) => {
   return score;
 };
 
+/** 过滤掉非日语声音，并按照上面的质量分数从好到差排序。 */
 const rankJapaneseVoices = (voices: SpeechSynthesisVoice[]) =>
   voices
     .filter((voice) => voice.lang.toLowerCase().startsWith('ja'))
     .sort((a, b) => voiceQualityScore(b) - voiceQualityScore(a));
 
+/** 从读音题的正确答案解析中找出真正被考查的词，例如只找出“閉鎖”。 */
 const readingFocusTerm = (question: Question) => {
   if (question.type !== '漢字の読み方') return null;
   const correctLine = question.explain
@@ -265,6 +271,7 @@ const readingFocusTerm = (question: Question) => {
   );
 };
 
+/** 把题库原始题号转换成页面标签，同时保留“問題4-3”这类特殊编号。 */
 const originalQuestionLabel = (question: Question) => {
   if (!question.sourceQuestion) return null;
   return /^\d+$/.test(question.sourceQuestion)
@@ -272,6 +279,7 @@ const originalQuestionLabel = (question: Question) => {
     : question.sourceQuestion;
 };
 
+/** 清理题干中已经重复出现的题号，避免题号标签和正文显示两遍。 */
 const displayPrompt = (question: Question) => {
   if (!question.sourceQuestion || /^\d+$/.test(question.sourceQuestion))
     return question.prompt;
@@ -283,6 +291,10 @@ const displayPrompt = (question: Question) => {
   );
 };
 
+/**
+ * 在句子中寻找单词的实际形态。
+ * 例如题目给出“くじける”，本函数也能认出“くじけない”和“くじけそう”。
+ */
 const inflectedSurface = (term: string, text: string) => {
   if (text.includes(term)) return term;
   if (term.length < 2) return null;
@@ -304,6 +316,7 @@ const inflectedSurface = (term: string, text: string) => {
   return text.match(new RegExp(`${stem}${ending}`))?.[0] || null;
 };
 
+/** 从同义替换题的解析中识别题干考点，例如找出需要替换的“試練”。 */
 const synonymFocusSurface = (question: Question) => {
   if (question.type !== '言い換え類義') return null;
   const overrides: Record<number, string> = {
@@ -341,6 +354,7 @@ const synonymFocusSurface = (question: Question) => {
     .replace(/^[、。\s]+|[、。\s]+$/g, '');
 };
 
+/** 生成带考点下划线的题干；没有明确考点的题目保持原样。 */
 const markedPrompt = (question: Question) => {
   const focus = readingFocusTerm(question) || synonymFocusSurface(question);
   const prompt = displayPrompt(question);
@@ -355,11 +369,13 @@ const markedPrompt = (question: Question) => {
   );
 };
 
+/** 在“用法”题的某个选项里寻找被考查词，包括它的活用形式。 */
 const usageFocusSurface = (question: Question, option: string) => {
   if (question.type !== '用法') return null;
   return inflectedSurface(question.prompt.trim(), option);
 };
 
+/** 生成带考点下划线的选项文字。 */
 const markedOption = (question: Question, option: string) => {
   const focus = usageFocusSurface(question, option);
   if (!focus) return option;
@@ -373,6 +389,7 @@ const markedOption = (question: Question, option: string) => {
   );
 };
 
+/** 根据选项长度自动选择排版：短词四列、中等短语两列、长句单列。 */
 const optionLayoutClass = (question: Question) => {
   const lengths = question.options.map((option) => option.trim().length);
   const longest = Math.max(...lengths, 0);
@@ -389,6 +406,7 @@ const optionLayoutClass = (question: Question) => {
   return 'compact-options';
 };
 
+/** 把当前设备的错题分批保存到站点数据库，避免一次发送过多数据。 */
 async function saveWrongs(deviceId: string, wrongs: Wrong[]) {
   const items = wrongs.map((wrong) => {
     const question = questions.find((q) => q.id === wrong.id)!;
@@ -408,6 +426,7 @@ async function saveWrongs(deviceId: string, wrongs: Wrong[]) {
   }
 }
 
+/** 首次打开网站时，把导入的历年真题初始化为待复习错题。 */
 const importedWrongs = (): Wrong[] =>
   importedWrongQuestions.map((question) => ({
     id: question.id,
@@ -417,6 +436,7 @@ const importedWrongs = (): Wrong[] =>
     nextReview: today(),
   }));
 
+/** 网站主入口：管理当前页面、主题、答题记录和错题，并在左侧导航间切换。 */
 export default function Home() {
   const [active, setActive] = useState('今日学习');
   const [attempts, setAttempts] = useState<Attempt[]>([]);
@@ -437,6 +457,7 @@ export default function Home() {
     setTheme(initial);
     document.documentElement.dataset.theme = initial;
   }, []);
+  /** 在浅色和深色主题之间切换，并记住用户的选择。 */
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
     setTheme(next);
@@ -444,6 +465,7 @@ export default function Home() {
     localStorage.setItem('ippo-theme', next);
   };
   useEffect(() => {
+    /** 从浏览器和数据库恢复学习记录；数据库不可用时自动使用本地记录。 */
     const hydrate = async () => {
       setAttempts(JSON.parse(localStorage.getItem('ippo-attempts') || '[]'));
       setDone(JSON.parse(localStorage.getItem('ippo-done') || '[]'));
@@ -502,7 +524,9 @@ export default function Home() {
   useEffect(() => {
     if (dbReady && deviceId) void saveWrongs(deviceId, wrongs);
   }, [wrongs, deviceId, dbReady]);
+  // 根据所有作答记录整理首页、分数模拟和学习数据页共用的统计结果。
   const stats = useMemo(() => {
+    /** 计算某一个学习模块的真实答题正确率。 */
     const by = (m: Module) => {
       const a = attempts.filter(
         (x) => questions.find((q) => q.id === x.id)?.module === m,
@@ -528,6 +552,7 @@ export default function Home() {
         : 0,
     };
   }, [attempts]);
+  /** 记录一次作答；答错时自动把题目加入错题本。 */
   const submit = (a: Attempt) => {
     setAttempts((p) => [...p.filter((x) => x.id !== a.id), a]);
     if (!a.correct && !wrongs.some((w) => w.id === a.id))
@@ -542,6 +567,7 @@ export default function Home() {
         },
       ]);
   };
+  /** 经用户确认后清除本机及数据库中的学习记录。 */
   const reset = async () => {
     if (confirm('确定清除本机的学习记录并重新开始吗？')) {
       if (deviceId)
@@ -641,6 +667,7 @@ export default function Home() {
   );
 }
 
+/** 今日学习首页：展示起点、模块正确率、每日计划和下一步建议。 */
 function Dashboard({
   stats,
   done,
@@ -784,6 +811,7 @@ function Dashboard({
   );
 }
 
+/** 诊断/专项答题页面：负责抽题、计时、语音播放、提交答案和切换题目。 */
 function Quiz({
   mode,
   attempts,
@@ -799,6 +827,7 @@ function Quiz({
   const [sessionAnswers, setSessionAnswers] = useState<Record<number, Attempt>>(
     {},
   );
+  // 诊断模式混合全部科目；专项模式只抽取当前选择科目的题目。
   const pool = useMemo(() => {
     const source =
       mode === 'diagnostic'
@@ -840,6 +869,7 @@ function Quiz({
       window.speechSynthesis.cancel();
     };
   }, []);
+  /** 切换题型或重新抽题时，清空本轮答案并从第一题重新开始。 */
   const resetSession = () => {
     setSessionSeed((seed) => seed + 1);
     setGeneration((value) => value + 1);
@@ -852,6 +882,7 @@ function Quiz({
     setSpeaking(false);
     setStart(Date.now());
   };
+  /** 使用设备上的最佳日语语音朗读听力材料。 */
   const playListening = () => {
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
@@ -890,6 +921,7 @@ function Quiz({
     setSpeaking(true);
     utterances.forEach((utterance) => window.speechSynthesis.speak(utterance));
   };
+  /** 提交当前选择，把是否正确和所用时间交给主页面保存。 */
   const answer = () => {
     if (chosen === null) return;
     const seconds = Math.max(1, Math.round((Date.now() - start) / 1000));
@@ -903,6 +935,7 @@ function Quiz({
     setSessionAnswers((current) => ({ ...current, [q.id]: result }));
     setChecked(true);
   };
+  /** 进入下一题，并重置当前题的选择、解析和计时状态。 */
   const next = () => {
     setIndex((index + 1) % pool.length);
     setChosen(null);
@@ -1164,6 +1197,7 @@ function Quiz({
   );
 }
 
+/** 错题本页面：提供筛选、逐题展开解析、复习状态和错误原因管理。 */
 function WrongBook({
   wrongs,
   setWrongs,
@@ -1181,6 +1215,7 @@ function WrongBook({
   const [reviewChoices, setReviewChoices] = useState<Record<number, number>>(
     {},
   );
+  /** 点击选项时只展开这一题；再次点击同一选项则收起。 */
   const toggleReview = (id: number, optionIndex: number) => {
     const isSameOpenChoice =
       revealedIds.includes(id) && reviewChoices[id] === optionIndex;
@@ -1200,6 +1235,7 @@ function WrongBook({
       return { ...current, [id]: optionIndex };
     });
   };
+  /** 通过“收起答案解析”按钮关闭某一道题的完整信息。 */
   const collapseReview = (id: number) => {
     setRevealedIds((current) =>
       current.filter((revealedId) => revealedId !== id),
@@ -1210,6 +1246,7 @@ function WrongBook({
       return next;
     });
   };
+  /** 从题目来源中提取“2025年12月”这样的真题批次。 */
   const sourcePeriod = (wrong: Wrong) => {
     const source = questions.find(
       (question) => question.id === wrong.id,
@@ -1229,8 +1266,10 @@ function WrongBook({
       }),
     [wrongs],
   );
+  /** 只更新指定错题的部分信息，例如错误原因或掌握状态。 */
   const update = (id: number, patch: Partial<Wrong>) =>
     setWrongs(wrongs.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+  // 同时应用掌握状态、真题年份和“今天到期”三个筛选条件。
   const filtered = wrongs.filter((wrong) => {
     const question = questions.find((q) => q.id === wrong.id)!;
     const statusOk =
@@ -1474,6 +1513,7 @@ function WrongBook({
   );
 }
 
+/** 根据真实作答估算三个科目的分数，并提示总分线和单科风险。 */
 function Score({
   stats,
   attempts,
@@ -1557,6 +1597,7 @@ function Score({
   );
 }
 
+/** 学习数据页面：汇总各模块正确率、平均用时和常见错误原因。 */
 function Data({
   stats,
   attempts,
@@ -1633,6 +1674,7 @@ function Data({
   );
 }
 
+/** 多个页面共用的空状态提示，可附带一个继续操作按钮。 */
 function Empty({
   text,
   sub,

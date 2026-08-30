@@ -18,6 +18,7 @@ export const metadata: Metadata = {
     '从诊断、训练到错题复习，用数据找到真正的薄弱点，稳步通过 JLPT N1。',
 };
 
+// 网站最外层布局：设置页面语言、全站字体，并把每个页面放进 body 中显示。
 export default function RootLayout({
   children,
 }: Readonly<{
