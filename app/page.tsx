@@ -1,15 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
   BrainCircuit,
+  CalendarDays,
   Check,
   ChevronRight,
   Clock3,
   Flame,
   Headphones,
   LayoutDashboard,
+  MessageCircle,
   NotebookPen,
   Play,
   RotateCcw,
@@ -23,6 +25,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import importedWrongQuestions from '@/lib/imported-wrongs.json';
+import { advancedQuestions } from '@/lib/advanced-questions';
 
 type Module = '文字・語彙' | '文法' | '読解' | '聴解';
 type Question = {
@@ -43,6 +46,7 @@ type Question = {
   source?: string;
   sourceQuestion?: string;
   frequency?: number;
+  audioSrc?: string;
 };
 type Wrong = {
   id: number;
@@ -50,13 +54,20 @@ type Wrong = {
   reason: string;
   mastered: boolean;
   nextReview: string;
+  reviewStage?: number;
+  reviewCount?: number;
+  lastReviewedAt?: string;
 };
 type Attempt = {
   id: number;
   chosen: number;
   seconds: number;
   correct: boolean;
+  mode?: string;
+  sessionId?: string;
+  createdAt?: string;
 };
+type StudyProfile = { examDate: string; dailyMinutes: number; targetScore: number };
 const practiceQuestions: Question[] = [
   {
     id: 1,
@@ -182,6 +193,7 @@ const expandNumberedOptions = (items: string[]) => {
 };
 const questions: Question[] = [
   ...practiceQuestions,
+  ...(advancedQuestions as unknown as Question[]),
   ...(importedWrongQuestions as unknown as Question[]).map((question) => {
     const rawOptions = question.prompt
       ? question.options
@@ -212,6 +224,8 @@ const nav = [
   [NotebookPen, '错题本'],
   [Trophy, '分数模拟'],
   [TrendingUp, '学习数据'],
+  [TimerReset, '全真模拟'],
+  [MessageCircle, 'AI 助手'],
 ] as const;
 /** 返回今天的日期（YYYY-MM-DD），用于判断某道错题今天是否需要复习。 */
 const today = () => new Date().toISOString().slice(0, 10);
@@ -445,6 +459,9 @@ export default function Home() {
   const [loaded, setLoaded] = useState(false);
   const [deviceId, setDeviceId] = useState('');
   const [dbReady, setDbReady] = useState(false);
+  const [profile, setProfile] = useState<StudyProfile>({
+    examDate: '2026-12-06', dailyMinutes: 30, targetScore: 120,
+  });
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   useEffect(() => {
     const stored = localStorage.getItem('ippo-theme');
@@ -497,6 +514,17 @@ export default function Home() {
           localStorage.setItem('ippo-imported-v2', '1');
         }
         setWrongs(hydrated);
+        const progressResponse = await fetch(
+          `/api/progress?deviceId=${encodeURIComponent(id)}`,
+        );
+        if (progressResponse.ok) {
+          const progress = (await progressResponse.json()) as {
+            attempts?: Attempt[];
+            profile?: StudyProfile;
+          };
+          if (progress.attempts?.length) setAttempts(progress.attempts);
+          if (progress.profile) setProfile(progress.profile);
+        }
         setDbReady(true);
       } catch {
         if (!localStorage.getItem('ippo-imported-v2')) {
@@ -554,30 +582,33 @@ export default function Home() {
   }, [attempts]);
   /** 记录一次作答；答错时自动把题目加入错题本。 */
   const submit = (a: Attempt) => {
-    setAttempts((p) => [...p.filter((x) => x.id !== a.id), a]);
-    if (!a.correct && !wrongs.some((w) => w.id === a.id))
-      setWrongs((p) => [
-        ...p,
-        {
-          id: a.id,
-          chosen: a.chosen,
-          reason: '待分析',
-          mastered: false,
-          nextReview: later(1),
-        },
-      ]);
+    const recorded = { ...a, createdAt: new Date().toISOString() };
+    setAttempts((p) => [...p, recorded]);
+    const existing = wrongs.find((w) => w.id === a.id);
+    if (!a.correct && !existing)
+      setWrongs((p) => [...p, { id: a.id, chosen: a.chosen, reason: '待分析', mastered: false,
+        nextReview: later(1), reviewStage: 0, reviewCount: 0 }]);
+    else if (existing) {
+      const oldStage = existing.reviewStage || 0;
+      const stage = a.correct ? Math.min(4, oldStage + 1) : 0;
+      const intervals = [1, 3, 7, 14, 30];
+      setWrongs((p) => p.map((w) => w.id === a.id ? {
+        ...w, chosen: a.chosen, mastered: a.correct && stage >= 4,
+        reviewStage: stage, reviewCount: (w.reviewCount || 0) + 1,
+        lastReviewedAt: new Date().toISOString(),
+        nextReview: later(a.correct ? intervals[stage] : 1),
+      } : w));
+    }
+    const question = questions.find((q) => q.id === a.id);
+    if (dbReady && deviceId && question)
+      void fetch('/api/progress', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ deviceId, attempt: { ...recorded, sessionId: a.sessionId || crypto.randomUUID(),
+          module: question.module, type: question.type, mode: a.mode || 'practice' } }) });
   };
-  /** 经用户确认后清除本机及数据库中的学习记录。 */
+  /** 只重置统计与今日任务；历史错题和复习状态始终保留。 */
   const reset = async () => {
-    if (confirm('确定清除本机的学习记录并重新开始吗？')) {
-      if (deviceId)
-        await fetch('/api/wrongs', {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ deviceId }),
-        });
+    if (confirm('只重置本机学习统计和今日任务。错题本及数据库错题不会删除，确定继续吗？')) {
       setAttempts([]);
-      setWrongs([]);
       setDone([]);
     }
   };
@@ -615,7 +646,7 @@ export default function Home() {
               : '数据库暂时不可用，错题会先保存在当前设备。'}
           </p>
           <button onClick={reset}>
-            <RotateCcw size={13} /> 清除记录
+            <RotateCcw size={13} /> 重置学习统计
           </button>
         </div>
       </aside>
@@ -645,13 +676,20 @@ export default function Home() {
             setDone={setDone}
             go={setActive}
             wrongCount={wrongs.filter((w) => !w.mastered).length}
+            attempts={attempts}
+            profile={profile}
+            setProfile={(next) => {
+              setProfile(next);
+              if (deviceId) void fetch('/api/progress', { method: 'POST', headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ deviceId, profile: next }) });
+            }}
           />
         )}{' '}
         {active === '诊断测试' && (
-          <Quiz mode="diagnostic" attempts={attempts} onSubmit={submit} />
+          <Quiz mode="diagnostic" attempts={attempts} onSubmit={submit} deviceId={deviceId} />
         )}{' '}
         {active === '专项训练' && (
-          <Quiz mode="practice" attempts={attempts} onSubmit={submit} />
+          <Quiz mode="practice" attempts={attempts} onSubmit={submit} deviceId={deviceId} />
         )}{' '}
         {active === '错题本' && (
           <WrongBook wrongs={wrongs} setWrongs={setWrongs} />
@@ -661,6 +699,12 @@ export default function Home() {
         )}{' '}
         {active === '学习数据' && (
           <Data stats={stats} attempts={attempts} wrongs={wrongs} />
+        )}
+        {active === '全真模拟' && (
+          <Quiz mode="mock" attempts={attempts} onSubmit={submit} deviceId={deviceId} />
+        )}
+        {active === 'AI 助手' && (
+          <StudyAssistant attempts={attempts} wrongs={wrongs} />
         )}
       </section>
     </main>
@@ -674,18 +718,36 @@ function Dashboard({
   setDone,
   go,
   wrongCount,
+  attempts,
+  profile,
+  setProfile,
 }: {
   stats: any;
   done: string[];
   setDone: (x: string[]) => void;
   go: (x: string) => void;
   wrongCount: number;
+  attempts: Attempt[];
+  profile: StudyProfile;
+  setProfile: (profile: StudyProfile) => void;
 }) {
+  const daysLeft = Math.max(0, Math.ceil((new Date(profile.examDate).getTime() - Date.now()) / 86400000));
+  const phase = daysLeft > 150 ? '基础补强期' : daysLeft > 90 ? '分模块训练期' : daysLeft > 45 ? '真题训练期' : daysLeft > 14 ? '全套模拟期' : '考前调整期';
+  const moduleRows = (['文字・語彙', '文法', '読解', '聴解'] as Module[]).map((module) => {
+    const rows = attempts.filter((a) => questions.find((q) => q.id === a.id)?.module === module);
+    const rate = rows.length ? rows.filter((a) => a.correct).length / rows.length : 0.5;
+    return { module, need: 1.15 - rate };
+  });
+  const totalNeed = moduleRows.reduce((sum, row) => sum + row.need, 0);
+  const reviewMinutes = Math.max(5, Math.round(profile.dailyMinutes * 0.18));
+  const trainingMinutes = Math.max(10, profile.dailyMinutes - reviewMinutes);
+  const moduleMinutes = new Map(moduleRows.map((row) => [row.module,
+    Math.max(3, Math.round(trainingMinutes * row.need / totalNeed))]));
   const tasks = [
-    ['词汇辨析', '完成 2 道近义词题', '专项训练'],
-    ['语法训练', '完成 2 道接续题', '专项训练'],
-    ['阅读限时', '完成 1 篇短文', '专项训练'],
-    ['到期错题', `${wrongCount} 道需要复习`, '错题本'],
+    ['词汇辨析', `训练 ${moduleMinutes.get('文字・語彙')} 分钟`, '专项训练'],
+    ['语法训练', `训练 ${moduleMinutes.get('文法')} 分钟`, '专项训练'],
+    ['限时阅读/听力', `训练 ${Math.max(moduleMinutes.get('読解') || 0, moduleMinutes.get('聴解') || 0)} 分钟`, '专项训练'],
+    ['间隔复习', `${wrongCount} 道未掌握 · ${reviewMinutes} 分钟`, '错题本'],
   ];
   const score = stats.score;
   return (
@@ -807,6 +869,15 @@ function Dashboard({
           )}
         </section>
       </div>
+      <section className="white-card plan-settings">
+        <div className="card-head"><div><span className="kicker">EXAM ROADMAP</span><h2>考试倒计时与动态计划</h2></div><b>{daysLeft} 天</b></div>
+        <div className="plan-profile">
+          <label>考试日期<input type="date" value={profile.examDate} onChange={(e) => setProfile({ ...profile, examDate: e.target.value })} /></label>
+          <label>每天学习<select value={profile.dailyMinutes} onChange={(e) => setProfile({ ...profile, dailyMinutes: Number(e.target.value) })}>{[20,30,45,60,90].map((n) => <option key={n} value={n}>{n} 分钟</option>)}</select></label>
+          <label>目标分<select value={profile.targetScore} onChange={(e) => setProfile({ ...profile, targetScore: Number(e.target.value) })}>{[100,110,120,140,160].map((n) => <option key={n} value={n}>{n} 分</option>)}</select></label>
+          <div className="phase-chip"><CalendarDays size={18}/><span>当前阶段</span><b>{phase}</b></div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -816,32 +887,45 @@ function Quiz({
   mode,
   attempts,
   onSubmit,
+  deviceId,
 }: {
   mode: string;
   attempts: Attempt[];
   onSubmit: (a: Attempt) => void;
+  deviceId: string;
 }) {
   const [practiceModule, setPracticeModule] = useState<Module>('文字・語彙');
   const [sessionSeed, setSessionSeed] = useState(() => Date.now());
+  const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
+  const [sessionStartedAt, setSessionStartedAt] = useState(() => Date.now());
+  const [totalElapsed, setTotalElapsed] = useState(0);
   const [generation, setGeneration] = useState(1);
   const [sessionAnswers, setSessionAnswers] = useState<Record<number, Attempt>>(
     {},
   );
   // 诊断模式混合全部科目；专项模式只抽取当前选择科目的题目。
   const pool = useMemo(() => {
-    const source =
-      mode === 'diagnostic'
-        ? practiceQuestions
-        : practiceQuestions.filter((q) => q.module === practiceModule);
-    if (source.length < 2) return source;
-    const offset = Math.abs(Math.floor(sessionSeed)) % source.length;
-    return [...source.slice(offset), ...source.slice(0, offset)];
-  }, [mode, practiceModule, sessionSeed]);
+    const ranked = (source: Question[]) => [...source].sort((a, b) => {
+      const score = (id: number) => Math.sin(id * 999 + sessionSeed) * 10000;
+      return score(a.id) - score(b.id);
+    });
+    if (mode === 'practice') {
+      const source = ranked(questions.filter((q) => q.module === practiceModule));
+      const fresh = source.filter((q) => !attempts.some((a) => a.id === q.id));
+      return [...fresh, ...source.filter((q) => !fresh.includes(q))].slice(0, 10);
+    }
+    const perModule = mode === 'diagnostic' ? 8 : 5;
+    return (['文字・語彙', '文法', '読解', '聴解'] as Module[]).flatMap((module) =>
+      ranked(questions.filter((q) => q.module === module)).slice(0, perModule));
+  }, [mode, practiceModule, sessionSeed, attempts]);
   const [index, setIndex] = useState(0);
   const [chosen, setChosen] = useState<number | null>(null);
   const [checked, setChecked] = useState(false);
   const [start, setStart] = useState(Date.now());
   const [speechRate, setSpeechRate] = useState(0.9);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const sessionSaved = useRef(false);
+  const [elapsed, setElapsed] = useState(0);
   const [speaking, setSpeaking] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
   const [availableVoices, setAvailableVoices] = useState<
@@ -850,6 +934,10 @@ function Quiz({
   const [voiceUri, setVoiceUri] = useState('');
   const q = pool[index];
   const doneCount = pool.filter((x) => sessionAnswers[x.id]).length;
+  const sessionRows = Object.values(sessionAnswers);
+  const totalTarget = pool.reduce((sum, item) => sum + item.targetSec, 0);
+  const sessionCorrect = sessionRows.filter((row) => row.correct).length;
+  const slowCorrect = sessionRows.filter((row) => row.correct && row.seconds > (questions.find((q) => q.id === row.id)?.targetSec || 60)).length;
   const japaneseVoices = useMemo(
     () => rankJapaneseVoices(availableVoices),
     [availableVoices],
@@ -869,9 +957,29 @@ function Quiz({
       window.speechSynthesis.cancel();
     };
   }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => setElapsed(Math.round((Date.now() - start) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [start]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setTotalElapsed(Math.round((Date.now() - sessionStartedAt) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [sessionStartedAt]);
+  useEffect(() => {
+    if (!deviceId || !pool.length || doneCount !== pool.length || sessionSaved.current) return;
+    sessionSaved.current = true;
+    void fetch('/api/progress', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceId, session: { id: sessionId, mode,
+        totalQuestions: pool.length, correctQuestions: sessionCorrect,
+        elapsedSeconds: totalElapsed, completedAt: new Date().toISOString() } }) });
+  }, [deviceId, doneCount, pool.length, mode, sessionId, sessionCorrect, totalElapsed]);
   /** 切换题型或重新抽题时，清空本轮答案并从第一题重新开始。 */
   const resetSession = () => {
     setSessionSeed((seed) => seed + 1);
+    setSessionId(crypto.randomUUID());
+    sessionSaved.current = false;
+    setSessionStartedAt(Date.now());
+    setTotalElapsed(0);
     setGeneration((value) => value + 1);
     setSessionAnswers({});
     setIndex(0);
@@ -881,9 +989,21 @@ function Quiz({
     window.speechSynthesis?.cancel();
     setSpeaking(false);
     setStart(Date.now());
+    setElapsed(0);
   };
   /** 使用设备上的最佳日语语音朗读听力材料。 */
   const playListening = () => {
+    if (q.audioSrc) {
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+      const audio = new Audio(q.audioSrc);
+      audio.playbackRate = speechRate;
+      audio.onended = () => setSpeaking(false);
+      audio.onerror = () => { setSpeaking(false); };
+      audioRef.current = audio;
+      setSpeaking(true);
+      void audio.play();
+      return;
+    }
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
     const quoted = q.prompt.match(/「([^」]+)」/)?.[1];
@@ -930,6 +1050,8 @@ function Quiz({
       chosen,
       seconds,
       correct: chosen === q.answer,
+      mode,
+      sessionId,
     };
     onSubmit(result);
     setSessionAnswers((current) => ({ ...current, [q.id]: result }));
@@ -954,12 +1076,12 @@ function Quiz({
           </span>
           <h1>
             {mode === 'diagnostic'
-              ? '8 道真实题目 · 自动计时判分'
-              : `${practiceModule}专项训练`}
+              ? '32 道分层诊断 · 正确率与速度联合分析'
+              : mode === 'mock' ? 'N1 全套计时模拟' : `${practiceModule}专项训练`}
           </h1>
           <p>
             第 {generation} 组 · 已完成 {doneCount}/{pool.length} ·
-            重新生成会重置本轮状态
+            {mode === 'mock' ? ` 全卷剩余 ${Math.max(0, Math.floor((totalTarget-totalElapsed)/60))}:${String(Math.max(0,totalTarget-totalElapsed)%60).padStart(2,'0')}` : ' 重新生成会重置本轮状态'}
           </p>
         </div>
         <div className="quiz-tools">
@@ -969,7 +1091,7 @@ function Quiz({
             </button>
           )}
           <div className="live-time">
-            <Clock3 size={18} /> 目标 {q.targetSec} 秒
+            <Clock3 size={18} /> {elapsed > q.targetSec ? `已超时 ${elapsed - q.targetSec} 秒` : `剩余建议 ${q.targetSec - elapsed} 秒`}
           </div>
         </div>
       </div>
@@ -992,6 +1114,10 @@ function Quiz({
                   className={practiceModule === module ? 'active' : ''}
                   onClick={() => {
                     setPracticeModule(module);
+                    setSessionId(crypto.randomUUID());
+                    sessionSaved.current = false;
+                    setSessionStartedAt(Date.now());
+                    setTotalElapsed(0);
                     setSessionSeed((seed) => seed + 1);
                     setGeneration((value) => value + 1);
                     setSessionAnswers({});
@@ -1039,6 +1165,7 @@ function Quiz({
                   onClick={
                     speaking
                       ? () => {
+                          audioRef.current?.pause();
                           window.speechSynthesis.cancel();
                           setSpeaking(false);
                         }
@@ -1060,9 +1187,9 @@ function Quiz({
                       setSpeechRate(Number(event.target.value))
                     }
                   >
-                    <option value={0.78}>慢速</option>
-                    <option value={0.9}>自然</option>
-                    <option value={1.05}>稍快</option>
+                    <option value={0.75}>0.75 倍</option>
+                    <option value={1}>1 倍</option>
+                    <option value={1.25}>1.25 倍</option>
                   </select>
                 </label>
                 {japaneseVoices.length > 1 && (
@@ -1087,8 +1214,8 @@ function Quiz({
                 ))}
               </div>
               <p>
-                {japaneseVoices.length
-                  ? '已优先使用高质量日语人声 · 非 JLPT 官方录音'
+                {q.audioSrc ? '独立音频文件 · 可变速与重复播放 · 非 JLPT 官方录音' : japaneseVoices.length
+                  ? '高质量日语语音备用模式 · 非 JLPT 官方录音'
                   : '未检测到日语人声，将使用系统默认语音'}
               </p>
               {q.context && (
@@ -1134,6 +1261,12 @@ function Quiz({
             >
               <b>{chosen === q.answer ? '回答正确' : '回答错误'}</b>
               <p>{q.explain}</p>
+              {q.module === '読解' && q.context && (
+                <div className="reading-map">
+                  <span>问题/背景</span><i>→</i><span>常见观点</span><i>→</i><span>转折或限定</span><i>→</i><span>作者结论</span>
+                  <small>本题依据：{q.explain}</small>
+                </div>
+              )}
             </div>
           )}
           <div className="q-actions">
@@ -1193,6 +1326,19 @@ function Quiz({
           </p>
         </aside>
       </div>
+      {doneCount === pool.length && pool.length > 0 && (
+        <section className="session-report white-card">
+          <div className="card-head"><div><span className="kicker">SESSION REPORT</span><h2>{mode === 'diagnostic' ? '入学诊断报告' : mode === 'mock' ? '模拟考试报告' : '本轮训练报告'}</h2></div><b>{Math.round(sessionCorrect / pool.length * 100)}%</b></div>
+          <div className="report-metrics">
+            <div><span>正确题数</span><b>{sessionCorrect}/{pool.length}</b></div>
+            <div><span>平均速度</span><b>{Math.round(sessionRows.reduce((sum, row) => sum + row.seconds, 0) / pool.length)} 秒</b></div>
+            <div><span>会做但超时</span><b>{slowCorrect} 题</b></div>
+            <div><span>时间管理</span><b>{slowCorrect >= 3 ? '需要优先训练' : '目前稳定'}</b></div>
+          </div>
+          <p>{slowCorrect >= 3 ? `你有 ${slowCorrect} 道题答对但超过建议时间，属于“知识会、速度不足”。下一轮优先进行限时训练。` : '本轮没有明显的“知识会但做不完”风险，继续关注错误类型。'}</p>
+          <button className="solid" onClick={resetSession}>生成下一组</button>
+        </section>
+      )}
     </div>
   );
 }
@@ -1269,6 +1415,17 @@ function WrongBook({
   /** 只更新指定错题的部分信息，例如错误原因或掌握状态。 */
   const update = (id: number, patch: Partial<Wrong>) =>
     setWrongs(wrongs.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+  /** 按“忘记/模糊/熟练”调整间隔；不会删除或替换任何原错题。 */
+  const review = (wrong: Wrong, quality: 'again' | 'hard' | 'easy') => {
+    const current = wrong.reviewStage || 0;
+    const stage = quality === 'again' ? 0 : Math.min(4, current + (quality === 'easy' ? 2 : 1));
+    const intervals = quality === 'again' ? 1 : quality === 'hard'
+      ? [1, 2, 4, 7, 14][stage]
+      : [2, 4, 7, 14, 30][stage];
+    update(wrong.id, { reviewStage: stage, reviewCount: (wrong.reviewCount || 0) + 1,
+      lastReviewedAt: new Date().toISOString(), nextReview: later(intervals),
+      mastered: quality === 'easy' && stage >= 4 });
+  };
   // 同时应用掌握状态、真题年份和“今天到期”三个筛选条件。
   const filtered = wrongs.filter((wrong) => {
     const question = questions.find((q) => q.id === wrong.id)!;
@@ -1494,6 +1651,12 @@ function WrongBook({
                     >
                       {w.mastered ? '重新加入复习' : '✓ 标记已掌握'}
                     </button>
+                    <div className="review-rating" aria-label="复习结果">
+                      <button onClick={() => review(w, 'again')}>忘记了<small>明天再练</small></button>
+                      <button onClick={() => review(w, 'hard')}>有点模糊<small>缩短间隔</small></button>
+                      <button onClick={() => review(w, 'easy')}>熟练掌握<small>延长间隔</small></button>
+                    </div>
+                    <p className="review-meta">已复习 {w.reviewCount || 0} 次 · 记忆阶段 {w.reviewStage || 0}/4</p>
                     {individuallyRevealed && (
                       <button
                         className="collapse-review"
@@ -1523,13 +1686,20 @@ function Score({
   attempts: Attempt[];
   go: (x: string) => void;
 }) {
+  const speedPenalty = (moduleList: Module[]) => {
+    const rows = attempts.filter((a) => moduleList.includes(questions.find((q) => q.id === a.id)?.module as Module));
+    if (!rows.length) return 0;
+    const slow = rows.filter((a) => a.seconds > (questions.find((q) => q.id === a.id)?.targetSec || 60)).length;
+    return Math.min(6, Math.round(slow / rows.length * 8));
+  };
   const modules = [
-    ['语言知识', Math.round(((stats.rates[0] + stats.rates[1]) / 2) * 0.6)],
-    ['阅读', Math.round(stats.rates[2] * 0.6)],
-    ['听力', Math.round(stats.rates[3] * 0.6)],
+    ['语言知识', Math.max(0, Math.round(((stats.rates[0] + stats.rates[1]) / 2) * 0.6) - speedPenalty(['文字・語彙','文法']))],
+    ['阅读', Math.max(0, Math.round(stats.rates[2] * 0.6) - speedPenalty(['読解']))],
+    ['听力', Math.max(0, Math.round(stats.rates[3] * 0.6) - speedPenalty(['聴解']))],
   ];
-  const enough = attempts.length >= 6;
+  const enough = attempts.length >= 12;
   const total = modules.reduce((s, x) => s + Number(x[1]), 0);
+  const margin = attempts.length >= 60 ? 5 : attempts.length >= 30 ? 9 : 14;
   return (
     <div className="workspace">
       <div className="simple-title">
@@ -1542,8 +1712,8 @@ function Score({
       </div>
       {!enough ? (
         <Empty
-          text={`还差 ${6 - attempts.length} 道作答才能估算`}
-          sub="至少完成 6 道不同模块的题目后生成分数区间。"
+          text={`还差 ${12 - attempts.length} 道作答才能估算`}
+          sub="至少完成 12 道不同模块的题目后生成趋势预测。"
         >
           <button className="solid" onClick={() => go('诊断测试')}>
             继续诊断
@@ -1563,6 +1733,7 @@ function Score({
                   ? '总分达到合格线'
                   : '距离合格线 ' + (100 - total) + ' 分'}
               </em>
+              <small>预测区间 {Math.max(0,total-margin)}–{Math.min(180,total+margin)} · 已计入超时风险</small>
             </div>
             {modules.map(([n, s]) => (
               <div key={String(n)}>
@@ -1608,6 +1779,17 @@ function Data({
   wrongs: Wrong[];
 }) {
   const moduleNames: Module[] = ['文字・語彙', '文法', '読解', '聴解'];
+  const weaknessMap = new Map<string, Attempt[]>();
+  attempts.forEach((attempt) => {
+    const q = questions.find((item) => item.id === attempt.id);
+    if (!q) return;
+    const key = `${q.module} · ${q.type}`;
+    weaknessMap.set(key, [...(weaknessMap.get(key) || []), attempt]);
+  });
+  const weaknesses = [...weaknessMap.entries()].map(([name, rows]) => ({ name,
+    score: rows.filter((row) => row.correct).length / rows.length * 100 -
+      rows.reduce((sum, row) => sum + Math.max(0, row.seconds - (questions.find((q) => q.id === row.id)?.targetSec || 60)), 0) / rows.length,
+    count: rows.length })).sort((a, b) => a.score - b.score).slice(0, 5);
   return (
     <div className="workspace">
       <div className="simple-title">
@@ -1668,8 +1850,56 @@ function Data({
               道错题未选择错误原因。
             </p>
           </section>
+          <section className="white-card weakness-card">
+            <h2>当前弱点排行榜</h2>
+            {weaknesses.map((item, index) => <div className="weakness-row" key={item.name}><b>{index + 1}</b><span>{item.name}<small>{item.count} 次作答 · 同时考虑正确率和超时</small></span><em>优先复习</em></div>)}
+          </section>
         </div>
       )}
+    </div>
+  );
+}
+
+/** 只依据题库标准答案与解析回答，避免脱离教材内容编造结论。 */
+function StudyAssistant({ attempts, wrongs }: { attempts: Attempt[]; wrongs: Wrong[] }) {
+  const candidateIds = [...new Set([...wrongs.map((w) => w.id), ...attempts.slice(-30).map((a) => a.id)])];
+  const candidates = candidateIds.map((id) => questions.find((q) => q.id === id)).filter((q): q is Question => Boolean(q));
+  const [questionId, setQuestionId] = useState(candidates[0]?.id || questions[0].id);
+  const [ask, setAsk] = useState('为什么其他选项不对？');
+  const [answer, setAnswer] = useState('');
+  const q = questions.find((item) => item.id === questionId) || questions[0];
+  const respond = () => {
+    const similar = questions.filter((item) => item.id !== q.id && item.module === q.module && item.type === q.type).slice(0, 5);
+    if (/类似|出.*题|练习/.test(ask)) {
+      setAnswer(similar.length ? `已从已校验题库找到 ${similar.length} 道同类题：${similar.map((item, index) => `${index + 1}. ${item.prompt}`).join('\n')}` : '当前标准题库中没有足够的同类题，不会临时编造未经校验的答案。');
+      return;
+    }
+    if (/主语|结构|逻辑|阅读/.test(ask)) {
+      setAnswer(`${q.context ? `上下文：${q.context}\n` : ''}解题依据：${q.explain}\n逻辑定位：先找题目要求，再定位转折、结论或指示对象；本题正确答案是「${q.options[q.answer]}」。`);
+      return;
+    }
+    setAnswer(`标准答案：${q.options[q.answer]}\n教材解析：${q.explain}${q.distractorExplain ? `\n选项辨析：${q.distractorExplain}` : ''}${q.expansion ? `\n知识拓展：${q.expansion}` : ''}\n回答仅引用站内已校验题库，不把临时生成内容计入成绩。`);
+  };
+  return (
+    <div className="workspace">
+      <div className="simple-title"><span className="kicker">GROUNDED COACH</span><h1>AI 学习助手</h1><p>先选择题目，再提问。回答严格以正确答案和站内教材解析为依据。</p></div>
+      <div className="assistant-layout">
+        <section className="white-card assistant-source">
+          <label>分析哪一道题<select value={questionId} onChange={(e) => { setQuestionId(Number(e.target.value)); setAnswer(''); }}>
+            {(candidates.length ? candidates : questions.slice(0, 30)).map((item) => <option key={item.id} value={item.id}>{item.module} · {item.type} · {item.prompt.slice(0, 30)}</option>)}
+          </select></label>
+          {q.context && <p className="passage">{q.context}</p>}
+          <h2>{q.prompt}</h2>
+          <ol>{q.options.map((option) => <li key={option}>{option}</li>)}</ol>
+          <span className="source-lock">依据：{q.source || '一歩 N1 校验题库'} · 标准答案已锁定</span>
+        </section>
+        <section className="white-card coach-chat">
+          <div className="quick-prompts">{['为什么其他选项不对？','帮我分析阅读逻辑','这句话的主语是谁？','给我 5 道类似题'].map((text) => <button key={text} onClick={() => setAsk(text)}>{text}</button>)}</div>
+          <textarea value={ask} onChange={(e) => setAsk(e.target.value)} placeholder="输入你的问题" />
+          <button className="solid" onClick={respond}><MessageCircle size={16}/> 基于教材回答</button>
+          {answer && <div className="coach-answer"><b>一歩老师</b><p>{answer}</p></div>}
+        </section>
+      </div>
     </div>
   );
 }
