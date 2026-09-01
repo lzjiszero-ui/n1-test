@@ -49,6 +49,7 @@ type Question = {
   frequency?: number;
   audioSrc?: string;
   transcript?: string;
+  focus?: string;
 };
 type Wrong = {
   id: number;
@@ -272,6 +273,7 @@ const rankJapaneseVoices = (voices: SpeechSynthesisVoice[]) =>
 /** 从读音题的正确答案解析中找出真正被考查的词，例如只找出“閉鎖”。 */
 const readingFocusTerm = (question: Question) => {
   if (question.type !== '漢字の読み方') return null;
+  if (question.focus) return question.focus;
   const correctLine = question.explain
     .split('\n')
     .find((line) => line.trim().startsWith(`${question.answerRaw}：`));
@@ -348,6 +350,7 @@ const inflectedSurface = (term: string, text: string) => {
 /** 从同义替换题的解析中识别题干考点，例如找出需要替换的“試練”。 */
 const synonymFocusSurface = (question: Question) => {
   if (question.type !== '言い換え類義') return null;
+  if (question.focus) return question.focus;
   const overrides: Record<number, string> = {
     10026: 'おろそか',
     10027: '請け負う',
@@ -360,27 +363,9 @@ const synonymFocusSurface = (question: Question) => {
     .filter((candidate): candidate is string => Boolean(candidate))
     .sort((a, b) => b.length - a.length)[0];
   if (quoted) return quoted;
-  const answer = question.answerText || '';
-  if (!answer || /^正确/.test(answer)) return null;
-  let prefix = 0;
-  while (
-    prefix < question.prompt.length &&
-    prefix < answer.length &&
-    question.prompt[prefix] === answer[prefix]
-  )
-    prefix += 1;
-  let suffix = 0;
-  while (
-    suffix < question.prompt.length - prefix &&
-    suffix < answer.length - prefix &&
-    question.prompt[question.prompt.length - 1 - suffix] ===
-      answer[answer.length - 1 - suffix]
-  )
-    suffix += 1;
-  return question.prompt
-    .slice(prefix, question.prompt.length - suffix)
-    .trim()
-    .replace(/^[、。\s]+|[、。\s]+$/g, '');
+  // 正确选项是“同义词”而不是题干子串，不能用字符差异反推考点。
+  // 旧做法会把整句误判为考点；没有明确 focus 时宁可不划线。
+  return null;
 };
 
 /** 生成带考点下划线的题干；没有明确考点的题目保持原样。 */
