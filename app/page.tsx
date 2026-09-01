@@ -25,8 +25,7 @@ import {
   TrendingUp,
   Volume2,
 } from 'lucide-react';
-import importedWrongQuestions from '@/lib/imported-wrongs.json';
-import { advancedQuestions } from '@/lib/advanced-questions';
+import officialQuestions202512 from '@/lib/questions-2025-12.json';
 
 type Module = '文字・語彙' | '文法' | '読解' | '聴解';
 type PracticeTrack = Module | '過去問演習';
@@ -49,6 +48,7 @@ type Question = {
   sourceQuestion?: string;
   frequency?: number;
   audioSrc?: string;
+  transcript?: string;
 };
 type Wrong = {
   id: number;
@@ -197,22 +197,13 @@ const expandNumberedOptions = (items: string[]) => {
   );
   return expanded.length > items.length ? expanded : items;
 };
-const questions: Question[] = [
-  ...practiceQuestions,
-  ...(advancedQuestions as unknown as Question[]),
-  ...(importedWrongQuestions as unknown as Question[]).map((question) => {
-    const rawOptions = question.prompt
-      ? question.options
-      : question.options.slice(1);
-    return {
-      ...question,
-      prompt: question.prompt || question.options[0],
-      options: expandNumberedOptions(rawOptions),
-      answer: question.answer,
-      targetSec: 60,
-    };
-  }),
-];
+// 2025 年 12 月整卷是当前四个专项的唯一题库，专项与本试验保持同步。
+const questions: Question[] = (
+  officialQuestions202512 as unknown as Question[]
+).map((question) => ({
+  ...question,
+  options: expandNumberedOptions(question.options),
+}));
 const reasons = [
   '不认识单词',
   '语法不懂',
@@ -446,13 +437,17 @@ const optionLayoutClass = (question: Question) => {
 
 /** 把当前设备的错题分批保存到站点数据库，避免一次发送过多数据。 */
 async function saveWrongs(deviceId: string, wrongs: Wrong[]) {
-  const items = wrongs.map((wrong) => {
-    const question = questions.find((q) => q.id === wrong.id)!;
-    return {
-      ...wrong,
-      module: question.module,
-      type: question.type,
-    };
+  const items = wrongs.flatMap((wrong) => {
+    const question = questions.find((q) => q.id === wrong.id);
+    return question
+      ? [
+          {
+            ...wrong,
+            module: question.module,
+            type: question.type,
+          },
+        ]
+      : [];
   });
   for (let start = 0; start < items.length; start += 50) {
     const response = await fetch('/api/wrongs', {
@@ -464,15 +459,8 @@ async function saveWrongs(deviceId: string, wrongs: Wrong[]) {
   }
 }
 
-/** 首次打开网站时，把导入的历年真题初始化为待复习错题。 */
-const importedWrongs = (): Wrong[] =>
-  importedWrongQuestions.map((question) => ({
-    id: question.id,
-    chosen: -1,
-    reason: '待分析',
-    mastered: false,
-    nextReview: today(),
-  }));
+/** 新题库不预设错题；只有用户真实答错后才加入错题本。 */
+const importedWrongs = (): Wrong[] => [];
 
 /** 网站主入口：管理当前页面、主题、答题记录和错题，并在左侧导航间切换。 */
 export default function Home() {
@@ -1047,7 +1035,7 @@ function Quiz({
   deviceId: string;
 }) {
   const [practiceModule, setPracticeModule] =
-    useState<PracticeTrack>('文字・語彙');
+    useState<PracticeTrack>('過去問演習');
   const [sessionSeed, setSessionSeed] = useState(() => Date.now());
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   const [sessionStartedAt, setSessionStartedAt] = useState(() => Date.now());
@@ -1064,7 +1052,7 @@ function Quiz({
         return score(a.id) - score(b.id);
       });
     if (mode === 'practice') {
-      if (practiceModule === '過去問演習') return practiceQuestions.slice(0, 1);
+      if (practiceModule === '過去問演習') return questions.slice(0, 1);
       const source = ranked(
         questions.filter((q) => q.module === practiceModule),
       );
@@ -1218,14 +1206,15 @@ function Quiz({
     const alternateVoice = japaneseVoices.find(
       (voice) => voice.voiceURI !== selectedVoice?.voiceURI,
     );
-    const dialogue = q.context
-      ? [...q.context.matchAll(/([男女])：([\s\S]*?)(?=(?:女|男)：|$)/g)].map(
-          (match) => ({ speaker: match[1], text: match[2].trim() }),
-        )
+    const listeningText = q.transcript || q.context || '';
+    const dialogue = listeningText
+      ? [
+          ...listeningText.matchAll(/([男女])：([\s\S]*?)(?=(?:女|男)：|$)/g),
+        ].map((match) => ({ speaker: match[1], text: match[2].trim() }))
       : [];
     const segments = dialogue.length
       ? dialogue
-      : [{ speaker: '女', text: quoted || q.context || q.prompt }];
+      : [{ speaker: '女', text: quoted || listeningText || q.prompt }];
     const utterances = segments.map(({ speaker, text }) => {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'ja-JP';
@@ -1445,7 +1434,7 @@ function Quiz({
                     ? '高质量日语语音备用模式 · 非 JLPT 官方录音'
                     : '未检测到日语人声，将使用系统默认语音'}
               </p>
-              {q.context && (
+              {(q.transcript || q.context) && (
                 <button
                   className="transcript-toggle"
                   onClick={() => setShowTranscript(!showTranscript)}
@@ -1458,9 +1447,13 @@ function Quiz({
           {q.context && q.module !== '聴解' && (
             <div className="passage">{q.context}</div>
           )}
-          {q.context && q.module === '聴解' && (showTranscript || checked) && (
-            <div className="passage listening-transcript">{q.context}</div>
-          )}
+          {(q.transcript || q.context) &&
+            q.module === '聴解' &&
+            (showTranscript || checked) && (
+              <div className="passage listening-transcript">
+                {q.transcript || q.context}
+              </div>
+            )}
           <h2>
             {originalQuestionLabel(q) && (
               <span className="original-question-number">
@@ -1934,6 +1927,49 @@ function PastExamTraining({
   );
 }
 
+/** 为整卷和 6 题训练提供听力播放；声音由浏览器根据原文实时合成。 */
+function ExamListeningPlayer({ question }: { question: Question }) {
+  const [speaking, setSpeaking] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(false);
+  const text = question.transcript || question.context || question.prompt;
+  const stop = () => {
+    window.speechSynthesis?.cancel();
+    setSpeaking(false);
+  };
+  const play = () => {
+    if (!('speechSynthesis' in window)) return;
+    stop();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'ja-JP';
+    utterance.rate = 0.9;
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    setSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
+  useEffect(() => () => window.speechSynthesis?.cancel(), []);
+  return (
+    <div className="listening-player exam-listening-player">
+      <div className="listen-main">
+        <button className="audio-play" onClick={speaking ? stop : play}>
+          {speaking ? <Square size={17} /> : <Volume2 size={19} />}
+          {speaking ? '停止播放' : '播放日语语音'}
+        </button>
+        <button
+          className="transcript-toggle"
+          onClick={() => setShowTranscript((visible) => !visible)}
+        >
+          {showTranscript ? '隐藏文字稿' : '显示文字稿'}
+        </button>
+      </div>
+      <p>根据听力原文生成的日语语音 · 非 JLPT 官方录音</p>
+      {showTranscript && (
+        <div className="passage listening-transcript">{text}</div>
+      )}
+    </div>
+  );
+}
+
 /** 以干净的考试卷样式显示一道题；是否展示答案由训练模式决定。 */
 function ExamQuestionCard({
   question,
@@ -1959,6 +1995,9 @@ function ExamQuestionCard({
       </div>
       {question.context && question.module !== '聴解' && (
         <div className="passage">{question.context}</div>
+      )}
+      {question.module === '聴解' && (
+        <ExamListeningPlayer question={question} />
       )}
       <h2>{markedPrompt(question)}</h2>
       <div className={`answer-options ${optionLayoutClass(question)}`}>
