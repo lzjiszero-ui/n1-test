@@ -1653,7 +1653,7 @@ function PracticeTrackTabs({
   );
 }
 
-/** 历年真题训练：支持随机六题即时反馈，以及整卷完成后统一判分。 */
+/** 历年真题训练：随机六题或整套真题都在同一页面作答，再统一判分。 */
 function PastExamTraining({
   activeTrack,
   onChooseTrack,
@@ -1683,9 +1683,7 @@ function PastExamTraining({
   const [period, setPeriod] = useState(periods[0] || '');
   const [examMode, setExamMode] = useState<'random' | 'full'>('random');
   const [seed, setSeed] = useState(() => Date.now());
-  const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, number>>({});
-  const [revealed, setRevealed] = useState<number[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [startedAt, setStartedAt] = useState(() => Date.now());
 
@@ -1714,7 +1712,6 @@ function PastExamTraining({
     [fullPaper, seed],
   );
   const paper = examMode === 'random' ? randomPaper : fullPaper;
-  const current = paper[index];
   const answeredCount = paper.filter(
     (question) => answers[question.id] !== undefined,
   ).length;
@@ -1730,29 +1727,13 @@ function PastExamTraining({
     setPeriod(nextPeriod);
     setExamMode(nextMode);
     setSeed(Date.now());
-    setIndex(0);
     setAnswers({});
-    setRevealed([]);
     setSubmitted(false);
     setStartedAt(Date.now());
   };
 
-  /** 随机模式确认一题后立即记录成绩并显示该题解析。 */
-  const checkRandomAnswer = (question: Question) => {
-    const chosen = answers[question.id];
-    if (chosen === undefined || revealed.includes(question.id)) return;
-    const attempt = {
-      id: question.id,
-      chosen,
-      seconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
-      correct: chosen === question.answer,
-    };
-    onSubmit(attempt);
-    setRevealed((currentIds) => [...currentIds, question.id]);
-  };
-
-  /** 整卷模式只有全部作答后才能交卷，交卷时一次记录所有题目。 */
-  const submitFullPaper = () => {
+  /** 当前页面全部作答后统一判分，并一次记录本组所有题目的成绩。 */
+  const submitPaper = () => {
     if (answeredCount !== paper.length || submitted) return;
     const secondsPerQuestion = Math.max(
       1,
@@ -1806,7 +1787,7 @@ function PastExamTraining({
             className={examMode === 'random' ? 'active' : ''}
             onClick={() => restart(period, 'random')}
           >
-            ランダム練習 <small>每组 6 题，即时确认</small>
+            ランダム練習 <small>每组 6 题，统一确认</small>
           </button>
           <button
             className={examMode === 'full' ? 'active' : ''}
@@ -1820,75 +1801,61 @@ function PastExamTraining({
         </button>
       </section>
 
-      {!current ? (
+      {!paper.length ? (
         <Empty text="该年月暂无可练题目" sub="请选择其他考试年月。" />
       ) : examMode === 'random' ? (
-        <div className="quiz-layout">
-          <ExamQuestionCard
-            question={current}
-            chosen={answers[current.id]}
-            showAnswer={revealed.includes(current.id)}
-            onChoose={(choice) =>
-              setAnswers((currentAnswers) => ({
-                ...currentAnswers,
-                [current.id]: choice,
-              }))
-            }
-          >
-            <div className="q-actions">
-              <button
-                className="ghost"
-                onClick={() => setIndex((index + 1) % paper.length)}
-              >
-                跳过 / 下一题
-              </button>
-              {revealed.includes(current.id) ? (
+        <div className="full-paper random-paper">
+          <header>
+            <span>ランダム練習</span>
+            <h2>{period} · 本组 6 题</h2>
+            <p>
+              已作答 {answeredCount}/{paper.length} 题 · 完成后统一确认答案
+            </p>
+          </header>
+          {paper.map((question, questionIndex) => (
+            <ExamQuestionCard
+              key={question.id}
+              question={question}
+              ordinal={questionIndex + 1}
+              chosen={answers[question.id]}
+              showAnswer={submitted}
+              onChoose={(choice) =>
+                !submitted &&
+                setAnswers((currentAnswers) => ({
+                  ...currentAnswers,
+                  [question.id]: choice,
+                }))
+              }
+            />
+          ))}
+          <footer className="exam-submit-bar">
+            {submitted ? (
+              <div className="exam-result">
+                <b>
+                  {correctCount} / {paper.length}
+                </b>
+                <span>本组正确题数</span>
+                <button className="solid" onClick={() => restart()}>
+                  生成下一组
+                </button>
+              </div>
+            ) : (
+              <>
+                <p>
+                  {answeredCount === paper.length
+                    ? '6 道题已全部完成，可以统一确认答案。'
+                    : `还剩 ${paper.length - answeredCount} 题未作答。`}
+                </p>
                 <button
                   className="solid"
-                  onClick={() => {
-                    setIndex((index + 1) % paper.length);
-                    setStartedAt(Date.now());
-                  }}
+                  disabled={answeredCount !== paper.length}
+                  onClick={submitPaper}
                 >
-                  下一题 <ChevronRight size={16} />
+                  确认 6 道题答案
                 </button>
-              ) : (
-                <button
-                  className="solid"
-                  disabled={answers[current.id] === undefined}
-                  onClick={() => checkRandomAnswer(current)}
-                >
-                  确认答案
-                </button>
-              )}
-            </div>
-          </ExamQuestionCard>
-          <aside className="session-card">
-            <h3>本组 6 题</h3>
-            {paper.map((question, questionIndex) => (
-              <button
-                key={question.id}
-                className={questionIndex === index ? 'current' : ''}
-                onClick={() => setIndex(questionIndex)}
-              >
-                <span>{questionIndex + 1}</span>
-                <div>
-                  <b>{originalQuestionLabel(question)}</b>
-                  <small>{question.type}</small>
-                </div>
-                {revealed.includes(question.id) && (
-                  <em
-                    className={
-                      answers[question.id] === question.answer ? 'ok' : 'no'
-                    }
-                  >
-                    {answers[question.id] === question.answer ? '✓' : '×'}
-                  </em>
-                )}
-              </button>
-            ))}
-            <p>随机抽取固定 6 题；确认后立即显示答案与解析。</p>
-          </aside>
+              </>
+            )}
+          </footer>
         </div>
       ) : (
         <div className="full-paper">
@@ -1936,7 +1903,7 @@ function PastExamTraining({
                 <button
                   className="solid"
                   disabled={answeredCount !== paper.length}
-                  onClick={submitFullPaper}
+                  onClick={submitPaper}
                 >
                   提交整卷并查看答案
                 </button>
