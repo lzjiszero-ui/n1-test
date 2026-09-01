@@ -1712,6 +1712,7 @@ button {
   font-size: 18px;
   font-variant-numeric: proportional-nums;
   line-height: 1.8;
+  white-space: pre-line;
 }
 .exam-question-card .answer-options.compact-options {
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1941,6 +1942,7 @@ button {
     'palt' 1,
     'kern' 1;
   line-height: 1.7;
+  white-space: pre-line;
   margin: 24px 0;
 }
 .answer-options {
@@ -2147,6 +2149,7 @@ button {
   font-family: var(--font-study);
   font-size: 15px;
   line-height: 1.6;
+  white-space: pre-line;
   font-variant-numeric: proportional-nums;
   font-feature-settings:
     'palt' 1,

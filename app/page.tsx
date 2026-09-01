@@ -312,13 +312,21 @@ const originalQuestionLabel = (question: Question) => {
 
 /** 清理题干中已经重复出现的题号，避免题号标签和正文显示两遍。 */
 const displayPrompt = (question: Question) => {
-  if (!question.sourceQuestion || /^\d+$/.test(question.sourceQuestion))
-    return question.prompt;
-  return question.prompt.replace(
-    new RegExp(
-      `^${question.sourceQuestion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[.．]\\s*`,
-    ),
-    '',
+  const withoutRepeatedNumber =
+    !question.sourceQuestion || /^\d+$/.test(question.sourceQuestion)
+      ? question.prompt
+      : question.prompt.replace(
+          new RegExp(
+            `^${question.sourceQuestion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[.．]\\s*`,
+          ),
+          '',
+        );
+  return (
+    withoutRepeatedNumber
+      // 对话题的新说话人必须从新行行首开始，避免 A、B 台词挤在一行。
+      .replace(/\s*B「/g, '\nB「')
+      // JLPT 句子排序题只有第三个空格是作答位置，其余三处显示普通空格线。
+      .replace(/★[\s　]*★[\s　]*★[\s　]*★/g, '＿＿　＿＿　★　＿＿')
   );
 };
 
