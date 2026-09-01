@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   MessageCircle,
   NotebookPen,
+  Printer,
   Play,
   RotateCcw,
   Moon,
@@ -234,11 +235,11 @@ const nav = [
 ] as const;
 
 const practiceTracks: PracticeTrack[] = [
+  '過去問演習',
   '文字・語彙',
   '文法',
   '読解',
   '聴解',
-  '過去問演習',
 ];
 
 /** 从题目来源中读取“2025年12月”这样的考试批次。 */
@@ -1681,7 +1682,7 @@ function PastExamTraining({
     [],
   );
   const [period, setPeriod] = useState(periods[0] || '');
-  const [examMode, setExamMode] = useState<'random' | 'full'>('random');
+  const [examMode, setExamMode] = useState<'random' | 'full'>('full');
   const [seed, setSeed] = useState(() => Date.now());
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -1732,15 +1733,20 @@ function PastExamTraining({
     setStartedAt(Date.now());
   };
 
-  /** 当前页面全部作答后统一判分，并一次记录本组所有题目的成绩。 */
+  /**
+   * 统一判分：整卷模式必须全部作答；随机模式答过一题即可提交，
+   * 没有作答的题用 -1 记录，因此会自然计为错误并进入后续复习统计。
+   */
   const submitPaper = () => {
-    if (answeredCount !== paper.length || submitted) return;
+    const canSubmit =
+      examMode === 'full' ? answeredCount === paper.length : answeredCount >= 1;
+    if (!canSubmit || submitted) return;
     const secondsPerQuestion = Math.max(
       1,
       Math.round((Date.now() - startedAt) / 1000 / Math.max(paper.length, 1)),
     );
     paper.forEach((question) => {
-      const chosen = answers[question.id];
+      const chosen = answers[question.id] ?? -1;
       onSubmit({
         id: question.id,
         chosen,
@@ -1784,18 +1790,27 @@ function PastExamTraining({
         <div className="exam-mode-switch">
           <b>训练模式</b>
           <button
-            className={examMode === 'random' ? 'active' : ''}
-            onClick={() => restart(period, 'random')}
-          >
-            ランダム練習 <small>每组 6 题，统一确认</small>
-          </button>
-          <button
             className={examMode === 'full' ? 'active' : ''}
             onClick={() => restart(period, 'full')}
           >
             本試験モード <small>完成整卷后统一判分</small>
           </button>
+          <button
+            className={examMode === 'random' ? 'active' : ''}
+            onClick={() => restart(period, 'random')}
+          >
+            ランダム練習 <small>随机 6 题，至少答 1 题后确认</small>
+          </button>
         </div>
+        {examMode === 'full' && (
+          <button
+            className="regenerate print-paper-button"
+            onClick={() => window.print()}
+            title="打开打印窗口后可选择“另存为 PDF”"
+          >
+            <Printer size={15} /> 下载本卷 PDF
+          </button>
+        )}
         <button className="regenerate" onClick={() => restart()}>
           <RotateCcw size={15} /> 重新开始
         </button>
@@ -1809,7 +1824,8 @@ function PastExamTraining({
             <span>ランダム練習</span>
             <h2>{period} · 本组 6 题</h2>
             <p>
-              已作答 {answeredCount}/{paper.length} 题 · 完成后统一确认答案
+              已作答 {answeredCount}/{paper.length} 题 · 至少作答 1
+              题后可统一确认
             </p>
           </header>
           {paper.map((question, questionIndex) => (
@@ -1842,13 +1858,15 @@ function PastExamTraining({
             ) : (
               <>
                 <p>
-                  {answeredCount === paper.length
-                    ? '6 道题已全部完成，可以统一确认答案。'
-                    : `还剩 ${paper.length - answeredCount} 题未作答。`}
+                  {answeredCount === 0
+                    ? '请至少作答 1 题后再确认答案。'
+                    : answeredCount === paper.length
+                      ? '6 道题已全部完成，可以统一确认答案。'
+                      : `还有 ${paper.length - answeredCount} 题未作答；现在确认将按做错处理。`}
                 </p>
                 <button
                   className="solid"
-                  disabled={answeredCount !== paper.length}
+                  disabled={answeredCount === 0}
                   onClick={submitPaper}
                 >
                   确认 6 道题答案

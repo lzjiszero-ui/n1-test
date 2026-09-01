@@ -1499,7 +1499,7 @@ button {
 }
 .exam-setup {
   display: grid;
-  grid-template-columns: minmax(160px, 0.7fr) minmax(430px, 2fr) auto;
+  grid-template-columns: minmax(160px, 0.7fr) minmax(430px, 2fr) auto auto;
   align-items: end;
   gap: 14px;
   margin-bottom: 18px;
@@ -1507,6 +1507,73 @@ button {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: #fff;
+}
+
+/*
+ * “下载本卷 PDF”使用浏览器的打印转 PDF 能力。
+ * 打印时只保留网站根据题库生成的整卷内容，不包含导航、筛选器、答案或操作按钮。
+ */
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  :root,
+  :root[data-theme='dark'] {
+    color-scheme: light;
+  }
+
+  body,
+  .real-shell,
+  .real-content,
+  .past-exam-workspace,
+  .full-paper,
+  .exam-question-card {
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  .real-shell {
+    display: block;
+  }
+
+  .real-side,
+  .real-top,
+  .quiz-head,
+  .practice-modules,
+  .exam-setup,
+  .exam-submit-bar,
+  .feedback {
+    display: none !important;
+  }
+
+  .real-content,
+  .past-exam-workspace {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .full-paper {
+    border: 0;
+    box-shadow: none;
+  }
+
+  .exam-question-card {
+    break-inside: avoid;
+    border-color: #aaa;
+    box-shadow: none;
+  }
+
+  .answer-options button,
+  .q-meta,
+  .q-meta b,
+  .q-meta em {
+    color: #111 !important;
+    background: #fff !important;
+  }
 }
 .exam-setup > div:first-child,
 .exam-mode-switch {
