@@ -1826,7 +1826,7 @@ button {
     'kern' 1;
   cursor: pointer;
 }
-.answer-options button span {
+.answer-options button > span:first-child {
   display: inline-grid;
   place-items: center;
   width: 23px;
@@ -1849,8 +1849,10 @@ button {
 }
 .feedback {
   margin-top: 14px;
+  border: 1px solid transparent;
   border-radius: 10px;
-  padding: 12px 14px;
+  padding: 16px 18px;
+  font-family: var(--font-study);
 }
 .feedback.good {
   background: #eaf7f0;
@@ -1861,12 +1863,14 @@ button {
   color: #974d3e;
 }
 .feedback b {
-  font-size: 11px;
+  display: block;
+  font-size: 16px;
+  line-height: 1.55;
 }
 .feedback p {
-  font-size: 10px;
-  line-height: 1.6;
-  margin: 5px 0 0;
+  font-size: 15px;
+  line-height: 1.75;
+  margin: 8px 0 0;
 }
 .q-actions {
   display: flex;
@@ -2020,6 +2024,13 @@ button {
   font-weight: 750;
 }
 .option-focus {
+  display: inline;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
   text-decoration: underline;
   text-decoration-color: #c98248;
   text-decoration-thickness: 2px;
@@ -2371,10 +2382,12 @@ button {
 :root[data-theme='dark'] .feedback.good {
   background: #1c392d;
   border-color: #315b49;
+  color: #9ce0c1;
 }
 :root[data-theme='dark'] .feedback.bad {
   background: #3a2521;
   border-color: #684238;
+  color: #ffb7a5;
 }
 :root[data-theme='dark'] .risk-real {
   background: #352f20;
