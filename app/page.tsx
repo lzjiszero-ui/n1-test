@@ -28,6 +28,7 @@ import importedWrongQuestions from '@/lib/imported-wrongs.json';
 import { advancedQuestions } from '@/lib/advanced-questions';
 
 type Module = '文字・語彙' | '文法' | '読解' | '聴解';
+type PracticeTrack = Module | '過去問演習';
 type Question = {
   id: number;
   module: Module;
@@ -67,7 +68,11 @@ type Attempt = {
   sessionId?: string;
   createdAt?: string;
 };
-type StudyProfile = { examDate: string; dailyMinutes: number; targetScore: number };
+type StudyProfile = {
+  examDate: string;
+  dailyMinutes: number;
+  targetScore: number;
+};
 const practiceQuestions: Question[] = [
   {
     id: 1,
@@ -227,6 +232,24 @@ const nav = [
   [TimerReset, '全真模拟'],
   [MessageCircle, 'AI 助手'],
 ] as const;
+
+const practiceTracks: PracticeTrack[] = [
+  '文字・語彙',
+  '文法',
+  '読解',
+  '聴解',
+  '過去問演習',
+];
+
+/** 从题目来源中读取“2025年12月”这样的考试批次。 */
+const examPeriodOfQuestion = (question: Question) =>
+  question.source?.match(/(?:19|20)\d{2}年\d{1,2}月/)?.[0] || null;
+
+/** 把原卷题号转换成可排序的数字，保证整卷模式按原始顺序出题。 */
+const sourceQuestionOrder = (question: Question) => {
+  const numbers = question.sourceQuestion?.match(/\d+/g)?.map(Number) || [];
+  return numbers.reduce((value, number) => value * 100 + number, 0);
+};
 /** 返回今天的日期（YYYY-MM-DD），用于判断某道错题今天是否需要复习。 */
 const today = () => new Date().toISOString().slice(0, 10);
 /** 从今天向后推指定天数，生成下一次复习日期。 */
@@ -460,7 +483,9 @@ export default function Home() {
   const [deviceId, setDeviceId] = useState('');
   const [dbReady, setDbReady] = useState(false);
   const [profile, setProfile] = useState<StudyProfile>({
-    examDate: '2026-12-06', dailyMinutes: 30, targetScore: 120,
+    examDate: '2026-12-06',
+    dailyMinutes: 30,
+    targetScore: 120,
   });
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   useEffect(() => {
@@ -586,28 +611,62 @@ export default function Home() {
     setAttempts((p) => [...p, recorded]);
     const existing = wrongs.find((w) => w.id === a.id);
     if (!a.correct && !existing)
-      setWrongs((p) => [...p, { id: a.id, chosen: a.chosen, reason: '待分析', mastered: false,
-        nextReview: later(1), reviewStage: 0, reviewCount: 0 }]);
+      setWrongs((p) => [
+        ...p,
+        {
+          id: a.id,
+          chosen: a.chosen,
+          reason: '待分析',
+          mastered: false,
+          nextReview: later(1),
+          reviewStage: 0,
+          reviewCount: 0,
+        },
+      ]);
     else if (existing) {
       const oldStage = existing.reviewStage || 0;
       const stage = a.correct ? Math.min(4, oldStage + 1) : 0;
       const intervals = [1, 3, 7, 14, 30];
-      setWrongs((p) => p.map((w) => w.id === a.id ? {
-        ...w, chosen: a.chosen, mastered: a.correct && stage >= 4,
-        reviewStage: stage, reviewCount: (w.reviewCount || 0) + 1,
-        lastReviewedAt: new Date().toISOString(),
-        nextReview: later(a.correct ? intervals[stage] : 1),
-      } : w));
+      setWrongs((p) =>
+        p.map((w) =>
+          w.id === a.id
+            ? {
+                ...w,
+                chosen: a.chosen,
+                mastered: a.correct && stage >= 4,
+                reviewStage: stage,
+                reviewCount: (w.reviewCount || 0) + 1,
+                lastReviewedAt: new Date().toISOString(),
+                nextReview: later(a.correct ? intervals[stage] : 1),
+              }
+            : w,
+        ),
+      );
     }
     const question = questions.find((q) => q.id === a.id);
     if (dbReady && deviceId && question)
-      void fetch('/api/progress', { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ deviceId, attempt: { ...recorded, sessionId: a.sessionId || crypto.randomUUID(),
-          module: question.module, type: question.type, mode: a.mode || 'practice' } }) });
+      void fetch('/api/progress', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          deviceId,
+          attempt: {
+            ...recorded,
+            sessionId: a.sessionId || crypto.randomUUID(),
+            module: question.module,
+            type: question.type,
+            mode: a.mode || 'practice',
+          },
+        }),
+      });
   };
   /** 只重置统计与今日任务；历史错题和复习状态始终保留。 */
   const reset = async () => {
-    if (confirm('只重置本机学习统计和今日任务。错题本及数据库错题不会删除，确定继续吗？')) {
+    if (
+      confirm(
+        '只重置本机学习统计和今日任务。错题本及数据库错题不会删除，确定继续吗？',
+      )
+    ) {
       setAttempts([]);
       setDone([]);
     }
@@ -680,16 +739,30 @@ export default function Home() {
             profile={profile}
             setProfile={(next) => {
               setProfile(next);
-              if (deviceId) void fetch('/api/progress', { method: 'POST', headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ deviceId, profile: next }) });
+              if (deviceId)
+                void fetch('/api/progress', {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ deviceId, profile: next }),
+                });
             }}
           />
         )}{' '}
         {active === '诊断测试' && (
-          <Quiz mode="diagnostic" attempts={attempts} onSubmit={submit} deviceId={deviceId} />
+          <Quiz
+            mode="diagnostic"
+            attempts={attempts}
+            onSubmit={submit}
+            deviceId={deviceId}
+          />
         )}{' '}
         {active === '专项训练' && (
-          <Quiz mode="practice" attempts={attempts} onSubmit={submit} deviceId={deviceId} />
+          <Quiz
+            mode="practice"
+            attempts={attempts}
+            onSubmit={submit}
+            deviceId={deviceId}
+          />
         )}{' '}
         {active === '错题本' && (
           <WrongBook wrongs={wrongs} setWrongs={setWrongs} />
@@ -701,7 +774,12 @@ export default function Home() {
           <Data stats={stats} attempts={attempts} wrongs={wrongs} />
         )}
         {active === '全真模拟' && (
-          <Quiz mode="mock" attempts={attempts} onSubmit={submit} deviceId={deviceId} />
+          <Quiz
+            mode="mock"
+            attempts={attempts}
+            onSubmit={submit}
+            deviceId={deviceId}
+          />
         )}
         {active === 'AI 助手' && (
           <StudyAssistant attempts={attempts} wrongs={wrongs} />
@@ -731,22 +809,48 @@ function Dashboard({
   profile: StudyProfile;
   setProfile: (profile: StudyProfile) => void;
 }) {
-  const daysLeft = Math.max(0, Math.ceil((new Date(profile.examDate).getTime() - Date.now()) / 86400000));
-  const phase = daysLeft > 150 ? '基础补强期' : daysLeft > 90 ? '分模块训练期' : daysLeft > 45 ? '真题训练期' : daysLeft > 14 ? '全套模拟期' : '考前调整期';
-  const moduleRows = (['文字・語彙', '文法', '読解', '聴解'] as Module[]).map((module) => {
-    const rows = attempts.filter((a) => questions.find((q) => q.id === a.id)?.module === module);
-    const rate = rows.length ? rows.filter((a) => a.correct).length / rows.length : 0.5;
-    return { module, need: 1.15 - rate };
-  });
+  const daysLeft = Math.max(
+    0,
+    Math.ceil((new Date(profile.examDate).getTime() - Date.now()) / 86400000),
+  );
+  const phase =
+    daysLeft > 150
+      ? '基础补强期'
+      : daysLeft > 90
+        ? '分模块训练期'
+        : daysLeft > 45
+          ? '真题训练期'
+          : daysLeft > 14
+            ? '全套模拟期'
+            : '考前调整期';
+  const moduleRows = (['文字・語彙', '文法', '読解', '聴解'] as Module[]).map(
+    (module) => {
+      const rows = attempts.filter(
+        (a) => questions.find((q) => q.id === a.id)?.module === module,
+      );
+      const rate = rows.length
+        ? rows.filter((a) => a.correct).length / rows.length
+        : 0.5;
+      return { module, need: 1.15 - rate };
+    },
+  );
   const totalNeed = moduleRows.reduce((sum, row) => sum + row.need, 0);
   const reviewMinutes = Math.max(5, Math.round(profile.dailyMinutes * 0.18));
   const trainingMinutes = Math.max(10, profile.dailyMinutes - reviewMinutes);
-  const moduleMinutes = new Map(moduleRows.map((row) => [row.module,
-    Math.max(3, Math.round(trainingMinutes * row.need / totalNeed))]));
+  const moduleMinutes = new Map(
+    moduleRows.map((row) => [
+      row.module,
+      Math.max(3, Math.round((trainingMinutes * row.need) / totalNeed)),
+    ]),
+  );
   const tasks = [
     ['词汇辨析', `训练 ${moduleMinutes.get('文字・語彙')} 分钟`, '专项训练'],
     ['语法训练', `训练 ${moduleMinutes.get('文法')} 分钟`, '专项训练'],
-    ['限时阅读/听力', `训练 ${Math.max(moduleMinutes.get('読解') || 0, moduleMinutes.get('聴解') || 0)} 分钟`, '专项训练'],
+    [
+      '限时阅读/听力',
+      `训练 ${Math.max(moduleMinutes.get('読解') || 0, moduleMinutes.get('聴解') || 0)} 分钟`,
+      '专项训练',
+    ],
     ['间隔复习', `${wrongCount} 道未掌握 · ${reviewMinutes} 分钟`, '错题本'],
   ];
   const score = stats.score;
@@ -870,12 +974,59 @@ function Dashboard({
         </section>
       </div>
       <section className="white-card plan-settings">
-        <div className="card-head"><div><span className="kicker">EXAM ROADMAP</span><h2>考试倒计时与动态计划</h2></div><b>{daysLeft} 天</b></div>
+        <div className="card-head">
+          <div>
+            <span className="kicker">EXAM ROADMAP</span>
+            <h2>考试倒计时与动态计划</h2>
+          </div>
+          <b>{daysLeft} 天</b>
+        </div>
         <div className="plan-profile">
-          <label>考试日期<input type="date" value={profile.examDate} onChange={(e) => setProfile({ ...profile, examDate: e.target.value })} /></label>
-          <label>每天学习<select value={profile.dailyMinutes} onChange={(e) => setProfile({ ...profile, dailyMinutes: Number(e.target.value) })}>{[20,30,45,60,90].map((n) => <option key={n} value={n}>{n} 分钟</option>)}</select></label>
-          <label>目标分<select value={profile.targetScore} onChange={(e) => setProfile({ ...profile, targetScore: Number(e.target.value) })}>{[100,110,120,140,160].map((n) => <option key={n} value={n}>{n} 分</option>)}</select></label>
-          <div className="phase-chip"><CalendarDays size={18}/><span>当前阶段</span><b>{phase}</b></div>
+          <label>
+            考试日期
+            <input
+              type="date"
+              value={profile.examDate}
+              onChange={(e) =>
+                setProfile({ ...profile, examDate: e.target.value })
+              }
+            />
+          </label>
+          <label>
+            每天学习
+            <select
+              value={profile.dailyMinutes}
+              onChange={(e) =>
+                setProfile({ ...profile, dailyMinutes: Number(e.target.value) })
+              }
+            >
+              {[20, 30, 45, 60, 90].map((n) => (
+                <option key={n} value={n}>
+                  {n} 分钟
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            目标分
+            <select
+              value={profile.targetScore}
+              onChange={(e) =>
+                setProfile({ ...profile, targetScore: Number(e.target.value) })
+              }
+            >
+              {[100, 110, 120, 140, 160].map((n) => (
+                <option key={n} value={n}>
+                  {n} 分
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="phase-chip">
+            <CalendarDays size={18} />
+            <span>当前阶段</span>
+            <b>{phase}</b>
+          </div>
         </div>
       </section>
     </div>
@@ -894,7 +1045,8 @@ function Quiz({
   onSubmit: (a: Attempt) => void;
   deviceId: string;
 }) {
-  const [practiceModule, setPracticeModule] = useState<Module>('文字・語彙');
+  const [practiceModule, setPracticeModule] =
+    useState<PracticeTrack>('文字・語彙');
   const [sessionSeed, setSessionSeed] = useState(() => Date.now());
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   const [sessionStartedAt, setSessionStartedAt] = useState(() => Date.now());
@@ -905,18 +1057,30 @@ function Quiz({
   );
   // 诊断模式混合全部科目；专项模式只抽取当前选择科目的题目。
   const pool = useMemo(() => {
-    const ranked = (source: Question[]) => [...source].sort((a, b) => {
-      const score = (id: number) => Math.sin(id * 999 + sessionSeed) * 10000;
-      return score(a.id) - score(b.id);
-    });
+    const ranked = (source: Question[]) =>
+      [...source].sort((a, b) => {
+        const score = (id: number) => Math.sin(id * 999 + sessionSeed) * 10000;
+        return score(a.id) - score(b.id);
+      });
     if (mode === 'practice') {
-      const source = ranked(questions.filter((q) => q.module === practiceModule));
+      if (practiceModule === '過去問演習') return practiceQuestions.slice(0, 1);
+      const source = ranked(
+        questions.filter((q) => q.module === practiceModule),
+      );
       const fresh = source.filter((q) => !attempts.some((a) => a.id === q.id));
-      return [...fresh, ...source.filter((q) => !fresh.includes(q))].slice(0, 10);
+      return [...fresh, ...source.filter((q) => !fresh.includes(q))].slice(
+        0,
+        10,
+      );
     }
     const perModule = mode === 'diagnostic' ? 8 : 5;
-    return (['文字・語彙', '文法', '読解', '聴解'] as Module[]).flatMap((module) =>
-      ranked(questions.filter((q) => q.module === module)).slice(0, perModule));
+    return (['文字・語彙', '文法', '読解', '聴解'] as Module[]).flatMap(
+      (module) =>
+        ranked(questions.filter((q) => q.module === module)).slice(
+          0,
+          perModule,
+        ),
+    );
   }, [mode, practiceModule, sessionSeed, attempts]);
   const [index, setIndex] = useState(0);
   const [chosen, setChosen] = useState<number | null>(null);
@@ -937,7 +1101,11 @@ function Quiz({
   const sessionRows = Object.values(sessionAnswers);
   const totalTarget = pool.reduce((sum, item) => sum + item.targetSec, 0);
   const sessionCorrect = sessionRows.filter((row) => row.correct).length;
-  const slowCorrect = sessionRows.filter((row) => row.correct && row.seconds > (questions.find((q) => q.id === row.id)?.targetSec || 60)).length;
+  const slowCorrect = sessionRows.filter(
+    (row) =>
+      row.correct &&
+      row.seconds > (questions.find((q) => q.id === row.id)?.targetSec || 60),
+  ).length;
   const japaneseVoices = useMemo(
     () => rankJapaneseVoices(availableVoices),
     [availableVoices],
@@ -958,21 +1126,52 @@ function Quiz({
     };
   }, []);
   useEffect(() => {
-    const timer = window.setInterval(() => setElapsed(Math.round((Date.now() - start) / 1000)), 1000);
+    const timer = window.setInterval(
+      () => setElapsed(Math.round((Date.now() - start) / 1000)),
+      1000,
+    );
     return () => window.clearInterval(timer);
   }, [start]);
   useEffect(() => {
-    const timer = window.setInterval(() => setTotalElapsed(Math.round((Date.now() - sessionStartedAt) / 1000)), 1000);
+    const timer = window.setInterval(
+      () => setTotalElapsed(Math.round((Date.now() - sessionStartedAt) / 1000)),
+      1000,
+    );
     return () => window.clearInterval(timer);
   }, [sessionStartedAt]);
   useEffect(() => {
-    if (!deviceId || !pool.length || doneCount !== pool.length || sessionSaved.current) return;
+    if (
+      !deviceId ||
+      !pool.length ||
+      doneCount !== pool.length ||
+      sessionSaved.current
+    )
+      return;
     sessionSaved.current = true;
-    void fetch('/api/progress', { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceId, session: { id: sessionId, mode,
-        totalQuestions: pool.length, correctQuestions: sessionCorrect,
-        elapsedSeconds: totalElapsed, completedAt: new Date().toISOString() } }) });
-  }, [deviceId, doneCount, pool.length, mode, sessionId, sessionCorrect, totalElapsed]);
+    void fetch('/api/progress', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        deviceId,
+        session: {
+          id: sessionId,
+          mode,
+          totalQuestions: pool.length,
+          correctQuestions: sessionCorrect,
+          elapsedSeconds: totalElapsed,
+          completedAt: new Date().toISOString(),
+        },
+      }),
+    });
+  }, [
+    deviceId,
+    doneCount,
+    pool.length,
+    mode,
+    sessionId,
+    sessionCorrect,
+    totalElapsed,
+  ]);
   /** 切换题型或重新抽题时，清空本轮答案并从第一题重新开始。 */
   const resetSession = () => {
     setSessionSeed((seed) => seed + 1);
@@ -994,11 +1193,16 @@ function Quiz({
   /** 使用设备上的最佳日语语音朗读听力材料。 */
   const playListening = () => {
     if (q.audioSrc) {
-      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
       const audio = new Audio(q.audioSrc);
       audio.playbackRate = speechRate;
       audio.onended = () => setSpeaking(false);
-      audio.onerror = () => { setSpeaking(false); };
+      audio.onerror = () => {
+        setSpeaking(false);
+      };
       audioRef.current = audio;
       setSpeaking(true);
       void audio.play();
@@ -1067,6 +1271,34 @@ function Quiz({
     setSpeaking(false);
     setStart(Date.now());
   };
+  const choosePracticeTrack = (track: PracticeTrack) => {
+    setPracticeModule(track);
+    setSessionId(crypto.randomUUID());
+    sessionSaved.current = false;
+    setSessionStartedAt(Date.now());
+    setTotalElapsed(0);
+    setSessionSeed((seed) => seed + 1);
+    setGeneration((value) => value + 1);
+    setSessionAnswers({});
+    setIndex(0);
+    setChosen(null);
+    setChecked(false);
+    setShowTranscript(false);
+    window.speechSynthesis?.cancel();
+    setSpeaking(false);
+    setStart(Date.now());
+    setElapsed(0);
+  };
+
+  if (mode === 'practice' && practiceModule === '過去問演習') {
+    return (
+      <PastExamTraining
+        activeTrack={practiceModule}
+        onChooseTrack={choosePracticeTrack}
+        onSubmit={onSubmit}
+      />
+    );
+  }
   return (
     <div className="workspace">
       <div className="quiz-head">
@@ -1077,11 +1309,15 @@ function Quiz({
           <h1>
             {mode === 'diagnostic'
               ? '32 道分层诊断 · 正确率与速度联合分析'
-              : mode === 'mock' ? 'N1 全套计时模拟' : `${practiceModule}专项训练`}
+              : mode === 'mock'
+                ? 'N1 全套计时模拟'
+                : `${practiceModule}专项训练`}
           </h1>
           <p>
             第 {generation} 组 · 已完成 {doneCount}/{pool.length} ·
-            {mode === 'mock' ? ` 全卷剩余 ${Math.max(0, Math.floor((totalTarget-totalElapsed)/60))}:${String(Math.max(0,totalTarget-totalElapsed)%60).padStart(2,'0')}` : ' 重新生成会重置本轮状态'}
+            {mode === 'mock'
+              ? ` 全卷剩余 ${Math.max(0, Math.floor((totalTarget - totalElapsed) / 60))}:${String(Math.max(0, totalTarget - totalElapsed) % 60).padStart(2, '0')}`
+              : ' 重新生成会重置本轮状态'}
           </p>
         </div>
         <div className="quiz-tools">
@@ -1091,61 +1327,49 @@ function Quiz({
             </button>
           )}
           <div className="live-time">
-            <Clock3 size={18} /> {elapsed > q.targetSec ? `已超时 ${elapsed - q.targetSec} 秒` : `剩余建议 ${q.targetSec - elapsed} 秒`}
+            <Clock3 size={18} />{' '}
+            {elapsed > q.targetSec
+              ? `已超时 ${elapsed - q.targetSec} 秒`
+              : `剩余建议 ${q.targetSec - elapsed} 秒`}
           </div>
         </div>
       </div>
       {mode === 'practice' && (
         <div className="practice-modules" aria-label="专项训练分类">
-          {(['文字・語彙', '文法', '読解', '聴解'] as Module[]).map(
-            (module) => {
-              const moduleQuestions = questions.filter(
-                (q) => q.module === module,
-              );
-              const completed =
-                module === practiceModule
-                  ? moduleQuestions.filter(
-                      (question) => sessionAnswers[question.id],
-                    ).length
-                  : 0;
-              return (
-                <button
-                  key={module}
-                  className={practiceModule === module ? 'active' : ''}
-                  onClick={() => {
-                    setPracticeModule(module);
-                    setSessionId(crypto.randomUUID());
-                    sessionSaved.current = false;
-                    setSessionStartedAt(Date.now());
-                    setTotalElapsed(0);
-                    setSessionSeed((seed) => seed + 1);
-                    setGeneration((value) => value + 1);
-                    setSessionAnswers({});
-                    setIndex(0);
-                    setChosen(null);
-                    setChecked(false);
-                    setShowTranscript(false);
-                    window.speechSynthesis?.cancel();
-                    setSpeaking(false);
-                    setStart(Date.now());
-                  }}
-                >
-                  <span>
-                    {module === '文字・語彙' && <BookOpen size={18} />}
-                    {module === '文法' && <BrainCircuit size={18} />}
-                    {module === '読解' && <NotebookPen size={18} />}
-                    {module === '聴解' && <Headphones size={18} />}
-                  </span>
-                  <div>
-                    <b>{module}</b>
-                    <small>
-                      已完成 {completed}/{moduleQuestions.length} 题
-                    </small>
-                  </div>
-                </button>
-              );
-            },
-          )}
+          {practiceTracks.map((module) => {
+            const moduleQuestions = questions.filter((q) =>
+              module === '過去問演習'
+                ? Boolean(examPeriodOfQuestion(q))
+                : q.module === module,
+            );
+            const completed =
+              module === practiceModule
+                ? moduleQuestions.filter(
+                    (question) => sessionAnswers[question.id],
+                  ).length
+                : 0;
+            return (
+              <button
+                key={module}
+                className={practiceModule === module ? 'active' : ''}
+                onClick={() => choosePracticeTrack(module)}
+              >
+                <span>
+                  {module === '文字・語彙' && <BookOpen size={18} />}
+                  {module === '文法' && <BrainCircuit size={18} />}
+                  {module === '読解' && <NotebookPen size={18} />}
+                  {module === '聴解' && <Headphones size={18} />}
+                  {module === '過去問演習' && <Trophy size={18} />}
+                </span>
+                <div>
+                  <b>{module}</b>
+                  <small>
+                    已完成 {completed}/{moduleQuestions.length} 题
+                  </small>
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
       <div className="quiz-layout">
@@ -1214,9 +1438,11 @@ function Quiz({
                 ))}
               </div>
               <p>
-                {q.audioSrc ? '独立音频文件 · 可变速与重复播放 · 非 JLPT 官方录音' : japaneseVoices.length
-                  ? '高质量日语语音备用模式 · 非 JLPT 官方录音'
-                  : '未检测到日语人声，将使用系统默认语音'}
+                {q.audioSrc
+                  ? '独立音频文件 · 可变速与重复播放 · 非 JLPT 官方录音'
+                  : japaneseVoices.length
+                    ? '高质量日语语音备用模式 · 非 JLPT 官方录音'
+                    : '未检测到日语人声，将使用系统默认语音'}
               </p>
               {q.context && (
                 <button
@@ -1263,7 +1489,13 @@ function Quiz({
               <p>{q.explain}</p>
               {q.module === '読解' && q.context && (
                 <div className="reading-map">
-                  <span>问题/背景</span><i>→</i><span>常见观点</span><i>→</i><span>转折或限定</span><i>→</i><span>作者结论</span>
+                  <span>问题/背景</span>
+                  <i>→</i>
+                  <span>常见观点</span>
+                  <i>→</i>
+                  <span>转折或限定</span>
+                  <i>→</i>
+                  <span>作者结论</span>
                   <small>本题依据：{q.explain}</small>
                 </div>
               )}
@@ -1328,18 +1560,450 @@ function Quiz({
       </div>
       {doneCount === pool.length && pool.length > 0 && (
         <section className="session-report white-card">
-          <div className="card-head"><div><span className="kicker">SESSION REPORT</span><h2>{mode === 'diagnostic' ? '入学诊断报告' : mode === 'mock' ? '模拟考试报告' : '本轮训练报告'}</h2></div><b>{Math.round(sessionCorrect / pool.length * 100)}%</b></div>
-          <div className="report-metrics">
-            <div><span>正确题数</span><b>{sessionCorrect}/{pool.length}</b></div>
-            <div><span>平均速度</span><b>{Math.round(sessionRows.reduce((sum, row) => sum + row.seconds, 0) / pool.length)} 秒</b></div>
-            <div><span>会做但超时</span><b>{slowCorrect} 题</b></div>
-            <div><span>时间管理</span><b>{slowCorrect >= 3 ? '需要优先训练' : '目前稳定'}</b></div>
+          <div className="card-head">
+            <div>
+              <span className="kicker">SESSION REPORT</span>
+              <h2>
+                {mode === 'diagnostic'
+                  ? '入学诊断报告'
+                  : mode === 'mock'
+                    ? '模拟考试报告'
+                    : '本轮训练报告'}
+              </h2>
+            </div>
+            <b>{Math.round((sessionCorrect / pool.length) * 100)}%</b>
           </div>
-          <p>{slowCorrect >= 3 ? `你有 ${slowCorrect} 道题答对但超过建议时间，属于“知识会、速度不足”。下一轮优先进行限时训练。` : '本轮没有明显的“知识会但做不完”风险，继续关注错误类型。'}</p>
-          <button className="solid" onClick={resetSession}>生成下一组</button>
+          <div className="report-metrics">
+            <div>
+              <span>正确题数</span>
+              <b>
+                {sessionCorrect}/{pool.length}
+              </b>
+            </div>
+            <div>
+              <span>平均速度</span>
+              <b>
+                {Math.round(
+                  sessionRows.reduce((sum, row) => sum + row.seconds, 0) /
+                    pool.length,
+                )}{' '}
+                秒
+              </b>
+            </div>
+            <div>
+              <span>会做但超时</span>
+              <b>{slowCorrect} 题</b>
+            </div>
+            <div>
+              <span>时间管理</span>
+              <b>{slowCorrect >= 3 ? '需要优先训练' : '目前稳定'}</b>
+            </div>
+          </div>
+          <p>
+            {slowCorrect >= 3
+              ? `你有 ${slowCorrect} 道题答对但超过建议时间，属于“知识会、速度不足”。下一轮优先进行限时训练。`
+              : '本轮没有明显的“知识会但做不完”风险，继续关注错误类型。'}
+          </p>
+          <button className="solid" onClick={resetSession}>
+            生成下一组
+          </button>
         </section>
       )}
     </div>
+  );
+}
+
+/** 专项训练顶部的五个分类入口，普通训练与历年真题共用。 */
+function PracticeTrackTabs({
+  activeTrack,
+  onChooseTrack,
+}: {
+  activeTrack: PracticeTrack;
+  onChooseTrack: (track: PracticeTrack) => void;
+}) {
+  return (
+    <div className="practice-modules" aria-label="专项训练分类">
+      {practiceTracks.map((track) => {
+        const count = questions.filter((question) =>
+          track === '過去問演習'
+            ? Boolean(examPeriodOfQuestion(question))
+            : question.module === track,
+        ).length;
+        return (
+          <button
+            key={track}
+            className={activeTrack === track ? 'active' : ''}
+            onClick={() => onChooseTrack(track)}
+          >
+            <span>
+              {track === '文字・語彙' && <BookOpen size={18} />}
+              {track === '文法' && <BrainCircuit size={18} />}
+              {track === '読解' && <NotebookPen size={18} />}
+              {track === '聴解' && <Headphones size={18} />}
+              {track === '過去問演習' && <Trophy size={18} />}
+            </span>
+            <div>
+              <b>{track}</b>
+              <small>{count} 道可练真题</small>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 历年真题训练：支持随机六题即时反馈，以及整卷完成后统一判分。 */
+function PastExamTraining({
+  activeTrack,
+  onChooseTrack,
+  onSubmit,
+}: {
+  activeTrack: PracticeTrack;
+  onChooseTrack: (track: PracticeTrack) => void;
+  onSubmit: (attempt: Attempt) => void;
+}) {
+  const periods = useMemo(
+    () =>
+      [
+        ...new Set(
+          questions
+            .map(examPeriodOfQuestion)
+            .filter((period): period is string => Boolean(period)),
+        ),
+      ].sort((a, b) => {
+        const value = (period: string) => {
+          const [year, month] = period.match(/\d+/g)?.map(Number) || [0, 0];
+          return year * 100 + month;
+        };
+        return value(b) - value(a);
+      }),
+    [],
+  );
+  const [period, setPeriod] = useState(periods[0] || '');
+  const [examMode, setExamMode] = useState<'random' | 'full'>('random');
+  const [seed, setSeed] = useState(() => Date.now());
+  const [index, setIndex] = useState(0);
+  const [answers, setAnswers] = useState<Record<number, number>>({});
+  const [revealed, setRevealed] = useState<number[]>([]);
+  const [submitted, setSubmitted] = useState(false);
+  const [startedAt, setStartedAt] = useState(() => Date.now());
+
+  const fullPaper = useMemo(
+    () =>
+      questions
+        .filter(
+          (question) =>
+            examPeriodOfQuestion(question) === period &&
+            question.options.length >= 2,
+        )
+        .sort(
+          (a, b) =>
+            sourceQuestionOrder(a) - sourceQuestionOrder(b) || a.id - b.id,
+        ),
+    [period],
+  );
+  const randomPaper = useMemo(
+    () =>
+      [...fullPaper]
+        .sort(
+          (a, b) =>
+            ((a.id * 9301 + seed) % 49297) - ((b.id * 9301 + seed) % 49297),
+        )
+        .slice(0, 6),
+    [fullPaper, seed],
+  );
+  const paper = examMode === 'random' ? randomPaper : fullPaper;
+  const current = paper[index];
+  const answeredCount = paper.filter(
+    (question) => answers[question.id] !== undefined,
+  ).length;
+  const correctCount = paper.filter(
+    (question) => answers[question.id] === question.answer,
+  ).length;
+
+  /** 更换年月或训练模式时，清空本轮答案并重新开始计时。 */
+  const restart = (
+    nextPeriod = period,
+    nextMode: 'random' | 'full' = examMode,
+  ) => {
+    setPeriod(nextPeriod);
+    setExamMode(nextMode);
+    setSeed(Date.now());
+    setIndex(0);
+    setAnswers({});
+    setRevealed([]);
+    setSubmitted(false);
+    setStartedAt(Date.now());
+  };
+
+  /** 随机模式确认一题后立即记录成绩并显示该题解析。 */
+  const checkRandomAnswer = (question: Question) => {
+    const chosen = answers[question.id];
+    if (chosen === undefined || revealed.includes(question.id)) return;
+    const attempt = {
+      id: question.id,
+      chosen,
+      seconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
+      correct: chosen === question.answer,
+    };
+    onSubmit(attempt);
+    setRevealed((currentIds) => [...currentIds, question.id]);
+  };
+
+  /** 整卷模式只有全部作答后才能交卷，交卷时一次记录所有题目。 */
+  const submitFullPaper = () => {
+    if (answeredCount !== paper.length || submitted) return;
+    const secondsPerQuestion = Math.max(
+      1,
+      Math.round((Date.now() - startedAt) / 1000 / Math.max(paper.length, 1)),
+    );
+    paper.forEach((question) => {
+      const chosen = answers[question.id];
+      onSubmit({
+        id: question.id,
+        chosen,
+        seconds: secondsPerQuestion,
+        correct: chosen === question.answer,
+      });
+    });
+    setSubmitted(true);
+  };
+
+  return (
+    <div className="workspace past-exam-workspace">
+      <div className="quiz-head">
+        <div>
+          <span className="kicker">专项训练</span>
+          <h1>過去問演習</h1>
+          <p>按考试年月练习已整理的 N1 真题，题干已去除页眉、页脚和水印。</p>
+        </div>
+        <div className="live-time">
+          <Clock3 size={18} /> {period || '暂无真题'}
+        </div>
+      </div>
+
+      <PracticeTrackTabs
+        activeTrack={activeTrack}
+        onChooseTrack={onChooseTrack}
+      />
+
+      <section className="exam-setup" aria-label="真题训练设置">
+        <div>
+          <b>真题年月</b>
+          <select
+            value={period}
+            onChange={(event) => restart(event.target.value, examMode)}
+          >
+            {periods.map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </div>
+        <div className="exam-mode-switch">
+          <b>训练模式</b>
+          <button
+            className={examMode === 'random' ? 'active' : ''}
+            onClick={() => restart(period, 'random')}
+          >
+            ランダム練習 <small>每组 6 题，即时确认</small>
+          </button>
+          <button
+            className={examMode === 'full' ? 'active' : ''}
+            onClick={() => restart(period, 'full')}
+          >
+            本試験モード <small>完成整卷后统一判分</small>
+          </button>
+        </div>
+        <button className="regenerate" onClick={() => restart()}>
+          <RotateCcw size={15} /> 重新开始
+        </button>
+      </section>
+
+      {!current ? (
+        <Empty text="该年月暂无可练题目" sub="请选择其他考试年月。" />
+      ) : examMode === 'random' ? (
+        <div className="quiz-layout">
+          <ExamQuestionCard
+            question={current}
+            chosen={answers[current.id]}
+            showAnswer={revealed.includes(current.id)}
+            onChoose={(choice) =>
+              setAnswers((currentAnswers) => ({
+                ...currentAnswers,
+                [current.id]: choice,
+              }))
+            }
+          >
+            <div className="q-actions">
+              <button
+                className="ghost"
+                onClick={() => setIndex((index + 1) % paper.length)}
+              >
+                跳过 / 下一题
+              </button>
+              {revealed.includes(current.id) ? (
+                <button
+                  className="solid"
+                  onClick={() => {
+                    setIndex((index + 1) % paper.length);
+                    setStartedAt(Date.now());
+                  }}
+                >
+                  下一题 <ChevronRight size={16} />
+                </button>
+              ) : (
+                <button
+                  className="solid"
+                  disabled={answers[current.id] === undefined}
+                  onClick={() => checkRandomAnswer(current)}
+                >
+                  确认答案
+                </button>
+              )}
+            </div>
+          </ExamQuestionCard>
+          <aside className="session-card">
+            <h3>本组 6 题</h3>
+            {paper.map((question, questionIndex) => (
+              <button
+                key={question.id}
+                className={questionIndex === index ? 'current' : ''}
+                onClick={() => setIndex(questionIndex)}
+              >
+                <span>{questionIndex + 1}</span>
+                <div>
+                  <b>{originalQuestionLabel(question)}</b>
+                  <small>{question.type}</small>
+                </div>
+                {revealed.includes(question.id) && (
+                  <em
+                    className={
+                      answers[question.id] === question.answer ? 'ok' : 'no'
+                    }
+                  >
+                    {answers[question.id] === question.answer ? '✓' : '×'}
+                  </em>
+                )}
+              </button>
+            ))}
+            <p>随机抽取固定 6 题；确认后立即显示答案与解析。</p>
+          </aside>
+        </div>
+      ) : (
+        <div className="full-paper">
+          <header>
+            <span>日本語能力試験 N1</span>
+            <h2>{period} 過去問題</h2>
+            <p>
+              全 {paper.length} 問 · 已作答 {answeredCount} 問
+            </p>
+          </header>
+          {paper.map((question, questionIndex) => (
+            <ExamQuestionCard
+              key={question.id}
+              question={question}
+              ordinal={questionIndex + 1}
+              chosen={answers[question.id]}
+              showAnswer={submitted}
+              onChoose={(choice) =>
+                !submitted &&
+                setAnswers((currentAnswers) => ({
+                  ...currentAnswers,
+                  [question.id]: choice,
+                }))
+              }
+            />
+          ))}
+          <footer className="exam-submit-bar">
+            {submitted ? (
+              <div className="exam-result">
+                <b>
+                  {correctCount} / {paper.length}
+                </b>
+                <span>本次正确题数</span>
+                <button className="solid" onClick={() => restart()}>
+                  再做一次
+                </button>
+              </div>
+            ) : (
+              <>
+                <p>
+                  {answeredCount === paper.length
+                    ? '全部题目已完成，可以交卷查看答案。'
+                    : `还剩 ${paper.length - answeredCount} 题，全部完成后才能查看答案。`}
+                </p>
+                <button
+                  className="solid"
+                  disabled={answeredCount !== paper.length}
+                  onClick={submitFullPaper}
+                >
+                  提交整卷并查看答案
+                </button>
+              </>
+            )}
+          </footer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 以干净的考试卷样式显示一道题；是否展示答案由训练模式决定。 */
+function ExamQuestionCard({
+  question,
+  ordinal,
+  chosen,
+  showAnswer,
+  onChoose,
+  children,
+}: {
+  question: Question;
+  ordinal?: number;
+  chosen?: number;
+  showAnswer: boolean;
+  onChoose: (choice: number) => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <section className="exam-question-card">
+      <div className="q-meta">
+        <span>{question.module}</span>
+        <b>{question.type}</b>
+        <em>{originalQuestionLabel(question) || `第 ${ordinal} 题`}</em>
+      </div>
+      {question.context && question.module !== '聴解' && (
+        <div className="passage">{question.context}</div>
+      )}
+      <h2>{markedPrompt(question)}</h2>
+      <div className={`answer-options ${optionLayoutClass(question)}`}>
+        {question.options.map((option, optionIndex) => (
+          <button
+            key={`${question.id}-${optionIndex}`}
+            disabled={showAnswer}
+            onClick={() => onChoose(optionIndex)}
+            className={`${chosen === optionIndex ? 'chosen ' : ''}${showAnswer && optionIndex === question.answer ? 'correct ' : ''}${showAnswer && chosen === optionIndex && optionIndex !== question.answer ? 'wrong' : ''}`}
+          >
+            <span>{optionIndex + 1}</span>
+            {markedOption(question, option)}
+          </button>
+        ))}
+      </div>
+      {showAnswer && (
+        <div
+          className={
+            chosen === question.answer ? 'feedback good' : 'feedback bad'
+          }
+        >
+          <b>{chosen === question.answer ? '回答正确' : '回答错误'}</b>
+          <p>
+            正确答案：{question.answerText || question.options[question.answer]}
+          </p>
+          <p>{question.explain}</p>
+        </div>
+      )}
+      {children}
+    </section>
   );
 }
 
@@ -1418,13 +2082,23 @@ function WrongBook({
   /** 按“忘记/模糊/熟练”调整间隔；不会删除或替换任何原错题。 */
   const review = (wrong: Wrong, quality: 'again' | 'hard' | 'easy') => {
     const current = wrong.reviewStage || 0;
-    const stage = quality === 'again' ? 0 : Math.min(4, current + (quality === 'easy' ? 2 : 1));
-    const intervals = quality === 'again' ? 1 : quality === 'hard'
-      ? [1, 2, 4, 7, 14][stage]
-      : [2, 4, 7, 14, 30][stage];
-    update(wrong.id, { reviewStage: stage, reviewCount: (wrong.reviewCount || 0) + 1,
-      lastReviewedAt: new Date().toISOString(), nextReview: later(intervals),
-      mastered: quality === 'easy' && stage >= 4 });
+    const stage =
+      quality === 'again'
+        ? 0
+        : Math.min(4, current + (quality === 'easy' ? 2 : 1));
+    const intervals =
+      quality === 'again'
+        ? 1
+        : quality === 'hard'
+          ? [1, 2, 4, 7, 14][stage]
+          : [2, 4, 7, 14, 30][stage];
+    update(wrong.id, {
+      reviewStage: stage,
+      reviewCount: (wrong.reviewCount || 0) + 1,
+      lastReviewedAt: new Date().toISOString(),
+      nextReview: later(intervals),
+      mastered: quality === 'easy' && stage >= 4,
+    });
   };
   // 同时应用掌握状态、真题年份和“今天到期”三个筛选条件。
   const filtered = wrongs.filter((wrong) => {
@@ -1652,11 +2326,20 @@ function WrongBook({
                       {w.mastered ? '重新加入复习' : '✓ 标记已掌握'}
                     </button>
                     <div className="review-rating" aria-label="复习结果">
-                      <button onClick={() => review(w, 'again')}>忘记了<small>明天再练</small></button>
-                      <button onClick={() => review(w, 'hard')}>有点模糊<small>缩短间隔</small></button>
-                      <button onClick={() => review(w, 'easy')}>熟练掌握<small>延长间隔</small></button>
+                      <button onClick={() => review(w, 'again')}>
+                        忘记了<small>明天再练</small>
+                      </button>
+                      <button onClick={() => review(w, 'hard')}>
+                        有点模糊<small>缩短间隔</small>
+                      </button>
+                      <button onClick={() => review(w, 'easy')}>
+                        熟练掌握<small>延长间隔</small>
+                      </button>
                     </div>
-                    <p className="review-meta">已复习 {w.reviewCount || 0} 次 · 记忆阶段 {w.reviewStage || 0}/4</p>
+                    <p className="review-meta">
+                      已复习 {w.reviewCount || 0} 次 · 记忆阶段{' '}
+                      {w.reviewStage || 0}/4
+                    </p>
                     {individuallyRevealed && (
                       <button
                         className="collapse-review"
@@ -1687,15 +2370,35 @@ function Score({
   go: (x: string) => void;
 }) {
   const speedPenalty = (moduleList: Module[]) => {
-    const rows = attempts.filter((a) => moduleList.includes(questions.find((q) => q.id === a.id)?.module as Module));
+    const rows = attempts.filter((a) =>
+      moduleList.includes(
+        questions.find((q) => q.id === a.id)?.module as Module,
+      ),
+    );
     if (!rows.length) return 0;
-    const slow = rows.filter((a) => a.seconds > (questions.find((q) => q.id === a.id)?.targetSec || 60)).length;
-    return Math.min(6, Math.round(slow / rows.length * 8));
+    const slow = rows.filter(
+      (a) =>
+        a.seconds > (questions.find((q) => q.id === a.id)?.targetSec || 60),
+    ).length;
+    return Math.min(6, Math.round((slow / rows.length) * 8));
   };
   const modules = [
-    ['语言知识', Math.max(0, Math.round(((stats.rates[0] + stats.rates[1]) / 2) * 0.6) - speedPenalty(['文字・語彙','文法']))],
-    ['阅读', Math.max(0, Math.round(stats.rates[2] * 0.6) - speedPenalty(['読解']))],
-    ['听力', Math.max(0, Math.round(stats.rates[3] * 0.6) - speedPenalty(['聴解']))],
+    [
+      '语言知识',
+      Math.max(
+        0,
+        Math.round(((stats.rates[0] + stats.rates[1]) / 2) * 0.6) -
+          speedPenalty(['文字・語彙', '文法']),
+      ),
+    ],
+    [
+      '阅读',
+      Math.max(0, Math.round(stats.rates[2] * 0.6) - speedPenalty(['読解'])),
+    ],
+    [
+      '听力',
+      Math.max(0, Math.round(stats.rates[3] * 0.6) - speedPenalty(['聴解'])),
+    ],
   ];
   const enough = attempts.length >= 12;
   const total = modules.reduce((s, x) => s + Number(x[1]), 0);
@@ -1733,7 +2436,10 @@ function Score({
                   ? '总分达到合格线'
                   : '距离合格线 ' + (100 - total) + ' 分'}
               </em>
-              <small>预测区间 {Math.max(0,total-margin)}–{Math.min(180,total+margin)} · 已计入超时风险</small>
+              <small>
+                预测区间 {Math.max(0, total - margin)}–
+                {Math.min(180, total + margin)} · 已计入超时风险
+              </small>
             </div>
             {modules.map(([n, s]) => (
               <div key={String(n)}>
@@ -1786,10 +2492,26 @@ function Data({
     const key = `${q.module} · ${q.type}`;
     weaknessMap.set(key, [...(weaknessMap.get(key) || []), attempt]);
   });
-  const weaknesses = [...weaknessMap.entries()].map(([name, rows]) => ({ name,
-    score: rows.filter((row) => row.correct).length / rows.length * 100 -
-      rows.reduce((sum, row) => sum + Math.max(0, row.seconds - (questions.find((q) => q.id === row.id)?.targetSec || 60)), 0) / rows.length,
-    count: rows.length })).sort((a, b) => a.score - b.score).slice(0, 5);
+  const weaknesses = [...weaknessMap.entries()]
+    .map(([name, rows]) => ({
+      name,
+      score:
+        (rows.filter((row) => row.correct).length / rows.length) * 100 -
+        rows.reduce(
+          (sum, row) =>
+            sum +
+            Math.max(
+              0,
+              row.seconds -
+                (questions.find((q) => q.id === row.id)?.targetSec || 60),
+            ),
+          0,
+        ) /
+          rows.length,
+      count: rows.length,
+    }))
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 5);
   return (
     <div className="workspace">
       <div className="simple-title">
@@ -1852,7 +2574,16 @@ function Data({
           </section>
           <section className="white-card weakness-card">
             <h2>当前弱点排行榜</h2>
-            {weaknesses.map((item, index) => <div className="weakness-row" key={item.name}><b>{index + 1}</b><span>{item.name}<small>{item.count} 次作答 · 同时考虑正确率和超时</small></span><em>优先复习</em></div>)}
+            {weaknesses.map((item, index) => (
+              <div className="weakness-row" key={item.name}>
+                <b>{index + 1}</b>
+                <span>
+                  {item.name}
+                  <small>{item.count} 次作答 · 同时考虑正确率和超时</small>
+                </span>
+                <em>优先复习</em>
+              </div>
+            ))}
           </section>
         </div>
       )}
@@ -1861,43 +2592,118 @@ function Data({
 }
 
 /** 只依据题库标准答案与解析回答，避免脱离教材内容编造结论。 */
-function StudyAssistant({ attempts, wrongs }: { attempts: Attempt[]; wrongs: Wrong[] }) {
-  const candidateIds = [...new Set([...wrongs.map((w) => w.id), ...attempts.slice(-30).map((a) => a.id)])];
-  const candidates = candidateIds.map((id) => questions.find((q) => q.id === id)).filter((q): q is Question => Boolean(q));
-  const [questionId, setQuestionId] = useState(candidates[0]?.id || questions[0].id);
+function StudyAssistant({
+  attempts,
+  wrongs,
+}: {
+  attempts: Attempt[];
+  wrongs: Wrong[];
+}) {
+  const candidateIds = [
+    ...new Set([
+      ...wrongs.map((w) => w.id),
+      ...attempts.slice(-30).map((a) => a.id),
+    ]),
+  ];
+  const candidates = candidateIds
+    .map((id) => questions.find((q) => q.id === id))
+    .filter((q): q is Question => Boolean(q));
+  const [questionId, setQuestionId] = useState(
+    candidates[0]?.id || questions[0].id,
+  );
   const [ask, setAsk] = useState('为什么其他选项不对？');
   const [answer, setAnswer] = useState('');
   const q = questions.find((item) => item.id === questionId) || questions[0];
   const respond = () => {
-    const similar = questions.filter((item) => item.id !== q.id && item.module === q.module && item.type === q.type).slice(0, 5);
+    const similar = questions
+      .filter(
+        (item) =>
+          item.id !== q.id && item.module === q.module && item.type === q.type,
+      )
+      .slice(0, 5);
     if (/类似|出.*题|练习/.test(ask)) {
-      setAnswer(similar.length ? `已从已校验题库找到 ${similar.length} 道同类题：${similar.map((item, index) => `${index + 1}. ${item.prompt}`).join('\n')}` : '当前标准题库中没有足够的同类题，不会临时编造未经校验的答案。');
+      setAnswer(
+        similar.length
+          ? `已从已校验题库找到 ${similar.length} 道同类题：${similar.map((item, index) => `${index + 1}. ${item.prompt}`).join('\n')}`
+          : '当前标准题库中没有足够的同类题，不会临时编造未经校验的答案。',
+      );
       return;
     }
     if (/主语|结构|逻辑|阅读/.test(ask)) {
-      setAnswer(`${q.context ? `上下文：${q.context}\n` : ''}解题依据：${q.explain}\n逻辑定位：先找题目要求，再定位转折、结论或指示对象；本题正确答案是「${q.options[q.answer]}」。`);
+      setAnswer(
+        `${q.context ? `上下文：${q.context}\n` : ''}解题依据：${q.explain}\n逻辑定位：先找题目要求，再定位转折、结论或指示对象；本题正确答案是「${q.options[q.answer]}」。`,
+      );
       return;
     }
-    setAnswer(`标准答案：${q.options[q.answer]}\n教材解析：${q.explain}${q.distractorExplain ? `\n选项辨析：${q.distractorExplain}` : ''}${q.expansion ? `\n知识拓展：${q.expansion}` : ''}\n回答仅引用站内已校验题库，不把临时生成内容计入成绩。`);
+    setAnswer(
+      `标准答案：${q.options[q.answer]}\n教材解析：${q.explain}${q.distractorExplain ? `\n选项辨析：${q.distractorExplain}` : ''}${q.expansion ? `\n知识拓展：${q.expansion}` : ''}\n回答仅引用站内已校验题库，不把临时生成内容计入成绩。`,
+    );
   };
   return (
     <div className="workspace">
-      <div className="simple-title"><span className="kicker">GROUNDED COACH</span><h1>AI 学习助手</h1><p>先选择题目，再提问。回答严格以正确答案和站内教材解析为依据。</p></div>
+      <div className="simple-title">
+        <span className="kicker">GROUNDED COACH</span>
+        <h1>AI 学习助手</h1>
+        <p>先选择题目，再提问。回答严格以正确答案和站内教材解析为依据。</p>
+      </div>
       <div className="assistant-layout">
         <section className="white-card assistant-source">
-          <label>分析哪一道题<select value={questionId} onChange={(e) => { setQuestionId(Number(e.target.value)); setAnswer(''); }}>
-            {(candidates.length ? candidates : questions.slice(0, 30)).map((item) => <option key={item.id} value={item.id}>{item.module} · {item.type} · {item.prompt.slice(0, 30)}</option>)}
-          </select></label>
+          <label>
+            分析哪一道题
+            <select
+              value={questionId}
+              onChange={(e) => {
+                setQuestionId(Number(e.target.value));
+                setAnswer('');
+              }}
+            >
+              {(candidates.length ? candidates : questions.slice(0, 30)).map(
+                (item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.module} · {item.type} · {item.prompt.slice(0, 30)}
+                  </option>
+                ),
+              )}
+            </select>
+          </label>
           {q.context && <p className="passage">{q.context}</p>}
           <h2>{q.prompt}</h2>
-          <ol>{q.options.map((option) => <li key={option}>{option}</li>)}</ol>
-          <span className="source-lock">依据：{q.source || '一歩 N1 校验题库'} · 标准答案已锁定</span>
+          <ol>
+            {q.options.map((option) => (
+              <li key={option}>{option}</li>
+            ))}
+          </ol>
+          <span className="source-lock">
+            依据：{q.source || '一歩 N1 校验题库'} · 标准答案已锁定
+          </span>
         </section>
         <section className="white-card coach-chat">
-          <div className="quick-prompts">{['为什么其他选项不对？','帮我分析阅读逻辑','这句话的主语是谁？','给我 5 道类似题'].map((text) => <button key={text} onClick={() => setAsk(text)}>{text}</button>)}</div>
-          <textarea value={ask} onChange={(e) => setAsk(e.target.value)} placeholder="输入你的问题" />
-          <button className="solid" onClick={respond}><MessageCircle size={16}/> 基于教材回答</button>
-          {answer && <div className="coach-answer"><b>一歩老师</b><p>{answer}</p></div>}
+          <div className="quick-prompts">
+            {[
+              '为什么其他选项不对？',
+              '帮我分析阅读逻辑',
+              '这句话的主语是谁？',
+              '给我 5 道类似题',
+            ].map((text) => (
+              <button key={text} onClick={() => setAsk(text)}>
+                {text}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={ask}
+            onChange={(e) => setAsk(e.target.value)}
+            placeholder="输入你的问题"
+          />
+          <button className="solid" onClick={respond}>
+            <MessageCircle size={16} /> 基于教材回答
+          </button>
+          {answer && (
+            <div className="coach-answer">
+              <b>一歩老师</b>
+              <p>{answer}</p>
+            </div>
+          )}
         </section>
       </div>
     </div>
