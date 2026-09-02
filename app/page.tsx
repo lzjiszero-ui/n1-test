@@ -26,6 +26,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import officialQuestions202512 from '@/lib/questions-2025-12.json';
+import originalWrongQuestions from '@/lib/imported-wrongs.json';
 
 type Module = '文字・語彙' | '文法' | '読解' | '聴解';
 type PracticeTrack = Module | '過去問演習';
@@ -205,6 +206,26 @@ const questions: Question[] = (
   ...question,
   options: expandNumberedOptions(question.options),
 }));
+
+// 原始错题是用户的个人学习资产，只供错题本恢复和展示，不混入专项训练题库。
+const originalWrongQuestionBank: Question[] = (
+  originalWrongQuestions as unknown as Question[]
+).map((question) => {
+  const rawOptions = question.prompt
+    ? question.options
+    : question.options.slice(1);
+  return {
+    ...question,
+    prompt: question.prompt || question.options[0],
+    options: expandNumberedOptions(rawOptions),
+    targetSec: question.targetSec || 60,
+  };
+});
+
+/** 查题时同时查找当前真题和原始错题，但训练抽题仍只使用 questions。 */
+const findQuestion = (id: number) =>
+  questions.find((question) => question.id === id) ||
+  originalWrongQuestionBank.find((question) => question.id === id);
 const reasons = [
   '不认识单词',
   '语法不懂',
@@ -431,7 +452,7 @@ const optionLayoutClass = (question: Question) => {
 /** 把当前设备的错题分批保存到站点数据库，避免一次发送过多数据。 */
 async function saveWrongs(deviceId: string, wrongs: Wrong[]) {
   const items = wrongs.flatMap((wrong) => {
-    const question = questions.find((q) => q.id === wrong.id);
+    const question = findQuestion(wrong.id);
     return question
       ? [
           {
@@ -452,8 +473,15 @@ async function saveWrongs(deviceId: string, wrongs: Wrong[]) {
   }
 }
 
-/** 新题库不预设错题；只有用户真实答错后才加入错题本。 */
-const importedWrongs = (): Wrong[] => [];
+/** 恢复用户原始导入的错题，不改动已有的复习记录。 */
+const importedWrongs = (): Wrong[] =>
+  originalWrongQuestionBank.map((question) => ({
+    id: question.id,
+    chosen: -1,
+    reason: '待分析',
+    mastered: false,
+    nextReview: today(),
+  }));
 
 /** 网站主入口：管理当前页面、主题、答题记录和错题，并在左侧导航间切换。 */
 export default function Home() {
@@ -511,14 +539,14 @@ export default function Home() {
         );
         if (!response.ok) throw new Error('database unavailable');
         let hydrated: Wrong[] = await response.json();
-        if (!localStorage.getItem('ippo-imported-v2')) {
+        if (!localStorage.getItem('ippo-original-wrongs-v3')) {
           const merged = new Map(hydrated.map((wrong) => [wrong.id, wrong]));
           importedWrongs().forEach((wrong) => {
             if (!merged.has(wrong.id)) merged.set(wrong.id, wrong);
           });
           hydrated = [...merged.values()];
           await saveWrongs(id, hydrated);
-          localStorage.setItem('ippo-imported-v2', '1');
+          localStorage.setItem('ippo-original-wrongs-v3', '1');
         }
         setWrongs(hydrated);
         const progressResponse = await fetch(
@@ -534,13 +562,13 @@ export default function Home() {
         }
         setDbReady(true);
       } catch {
-        if (!localStorage.getItem('ippo-imported-v2')) {
+        if (!localStorage.getItem('ippo-original-wrongs-v3')) {
           const merged = new Map(localWrongs.map((wrong) => [wrong.id, wrong]));
           importedWrongs().forEach((wrong) => {
             if (!merged.has(wrong.id)) merged.set(wrong.id, wrong);
           });
           setWrongs([...merged.values()]);
-          localStorage.setItem('ippo-imported-v2', '1');
+          localStorage.setItem('ippo-original-wrongs-v3', '1');
         } else {
           setWrongs(localWrongs);
         }
@@ -2075,9 +2103,7 @@ function WrongBook({
   };
   /** 从题目来源中提取“2025年12月”这样的真题批次。 */
   const sourcePeriod = (wrong: Wrong) => {
-    const source = questions.find(
-      (question) => question.id === wrong.id,
-    )?.source;
+    const source = findQuestion(wrong.id)?.source;
     return source?.match(/(?:19|20)\d{2}年\d{1,2}月/)?.[0] || '年份未知';
   };
   const sourcePeriods = useMemo(
@@ -2119,7 +2145,7 @@ function WrongBook({
   };
   // 同时应用掌握状态、真题年份和“今天到期”三个筛选条件。
   const filtered = wrongs.filter((wrong) => {
-    const question = questions.find((q) => q.id === wrong.id)!;
+    const question = findQuestion(wrong.id);
     const statusOk =
       statusFilter === '全部' ||
       (statusFilter === '已掌握' ? wrong.mastered : !wrong.mastered);
@@ -2127,7 +2153,8 @@ function WrongBook({
     return (
       statusOk &&
       yearOk &&
-      (moduleFilter === '全部' || question.module === moduleFilter)
+      Boolean(question) &&
+      (moduleFilter === '全部' || question?.module === moduleFilter)
     );
   });
   return (
@@ -2216,7 +2243,8 @@ function WrongBook({
       ) : (
         <div className="wrong-grid">
           {filtered.map((w) => {
-            const q = questions.find((x) => x.id === w.id)!;
+            const q = findQuestion(w.id);
+            if (!q) return null;
             const individuallyRevealed = revealedIds.includes(q.id);
             const showFull = contentView === '全部信息' || individuallyRevealed;
             return (
