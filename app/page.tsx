@@ -2070,6 +2070,18 @@ function WrongBook({
   const [reviewChoices, setReviewChoices] = useState<Record<number, number>>(
     {},
   );
+  const [masterNotice, setMasterNotice] = useState<{
+    id: number;
+    mastered: boolean;
+  } | null>(null);
+  const masterNoticeTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (masterNoticeTimer.current)
+        window.clearTimeout(masterNoticeTimer.current);
+    },
+    [],
+  );
   /** 点击选项时只展开这一题；再次点击同一选项则收起。 */
   const toggleReview = (id: number, optionIndex: number) => {
     const isSameOpenChoice =
@@ -2122,6 +2134,21 @@ function WrongBook({
   /** 只更新指定错题的部分信息，例如错误原因或掌握状态。 */
   const update = (id: number, patch: Partial<Wrong>) =>
     setWrongs(wrongs.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+  /** 切换掌握状态后立即显示按钮状态和短暂提示，让用户知道操作已保存。 */
+  const toggleMastered = (wrong: Wrong) => {
+    const mastered = !wrong.mastered;
+    update(wrong.id, {
+      mastered,
+      nextReview: later(mastered ? 7 : 1),
+    });
+    setMasterNotice({ id: wrong.id, mastered });
+    if (masterNoticeTimer.current)
+      window.clearTimeout(masterNoticeTimer.current);
+    masterNoticeTimer.current = window.setTimeout(
+      () => setMasterNotice(null),
+      2400,
+    );
+  };
   /** 按“忘记/模糊/熟练”调整间隔；不会删除或替换任何原错题。 */
   const review = (wrong: Wrong, quality: 'again' | 'hard' | 'easy') => {
     const current = wrong.reviewStage || 0;
@@ -2164,6 +2191,19 @@ function WrongBook({
         <h1>错题本</h1>
         <p>每次答错都会自动加入；请补充错误原因，系统会安排复习日期。</p>
       </div>
+      {masterNotice && (
+        <div className="master-toast" role="status" aria-live="polite">
+          <Check size={18} strokeWidth={2.5} />
+          <span>
+            <b>{masterNotice.mastered ? '已标记为掌握' : '已重新加入复习'}</b>
+            <small>
+              {masterNotice.mastered
+                ? '7 天后再次提醒，可随时撤销'
+                : '明天将再次复习'}
+            </small>
+          </span>
+        </div>
+      )}
       <div className="wrong-filters">
         <div>
           <b>掌握状态</b>
@@ -2372,15 +2412,12 @@ function WrongBook({
                       </select>
                     </label>
                     <button
-                      className="master"
-                      onClick={() =>
-                        update(w.id, {
-                          mastered: !w.mastered,
-                          nextReview: later(w.mastered ? 1 : 7),
-                        })
-                      }
+                      className={`master ${w.mastered ? 'is-mastered' : ''}`}
+                      aria-pressed={w.mastered}
+                      onClick={() => toggleMastered(w)}
                     >
-                      {w.mastered ? '重新加入复习' : '✓ 标记已掌握'}
+                      <Check size={14} strokeWidth={2.5} />
+                      {w.mastered ? '已掌握 · 点击撤销' : '标记已掌握'}
                     </button>
                     <div className="review-rating" aria-label="复习结果">
                       <button onClick={() => review(w, 'again')}>
