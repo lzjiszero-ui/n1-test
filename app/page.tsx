@@ -2288,7 +2288,17 @@ function WrongBook({
                         {contentView === '仅题目与选项' ? (
                           <button
                             className={`review-option ${
-                              reviewChoices[q.id] === index ? 'selected' : ''
+                              reviewChoices[q.id] === index ? 'selected ' : ''
+                            }${
+                              individuallyRevealed && index === q.answer
+                                ? 'correct '
+                                : ''
+                            }${
+                              individuallyRevealed &&
+                              reviewChoices[q.id] === index &&
+                              index !== q.answer
+                                ? 'wrong'
+                                : ''
                             }`}
                             onClick={() => toggleReview(q.id, index)}
                             aria-expanded={individuallyRevealed}
@@ -2296,7 +2306,9 @@ function WrongBook({
                             {markedOption(q, option)}
                           </button>
                         ) : (
-                          markedOption(q, option)
+                          <span className="review-option-text">
+                            {markedOption(q, option)}
+                          </span>
                         )}
                       </li>
                     ))}
