@@ -1978,12 +1978,26 @@ button {
   background: #edf7f2;
 }
 .answer-options button.correct {
-  border-color: #329368;
-  background: #e8f7ef;
+  border-color: #27875b;
+  background: #d9f5e5;
+  color: #155c3b;
 }
 .answer-options button.wrong {
-  border-color: #c96d5a;
-  background: #fbeeea;
+  border-color: #c95749;
+  background: #fde2df;
+  color: #8f2f24;
+}
+.answer-options button.correct > span:first-child {
+  background: #bde9cf;
+  color: #124b32;
+}
+.answer-options button.wrong > span:first-child {
+  background: #f6c4bd;
+  color: #76251d;
+}
+.answer-options button:disabled {
+  cursor: default;
+  opacity: 1;
 }
 .feedback {
   margin-top: 14px;
@@ -2510,6 +2524,24 @@ button {
 :root[data-theme='dark'] .answer-options button.chosen {
   background: #294237;
   color: #8bd0b1;
+}
+:root[data-theme='dark'] .answer-options button.correct {
+  border-color: #45b77d;
+  background: #163f2d;
+  color: #c7f9dd;
+}
+:root[data-theme='dark'] .answer-options button.wrong {
+  border-color: #e07a6d;
+  background: #4a211f;
+  color: #ffd2cc;
+}
+:root[data-theme='dark'] .answer-options button.correct > span:first-child {
+  background: #276447;
+  color: #e0ffed;
+}
+:root[data-theme='dark'] .answer-options button.wrong > span:first-child {
+  background: #73362f;
+  color: #ffe5e1;
 }
 :root[data-theme='dark'] .passage,
 :root[data-theme='dark'] .imported-options,
