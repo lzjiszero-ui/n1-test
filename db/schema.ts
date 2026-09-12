@@ -88,5 +88,30 @@ export const learningSessions = sqliteTable(
     elapsedSeconds: integer('elapsed_seconds').notNull(),
     completedAt: text('completed_at').notNull(),
   },
-  (table) => [index('idx_learning_sessions_device_completed').on(table.deviceId, table.completedAt)],
+  (table) => [
+    index('idx_learning_sessions_device_completed').on(
+      table.deviceId,
+      table.completedAt,
+    ),
+  ],
+);
+
+// 单词本：保存词形、读音、中文释义以及用户需要记住的使用场景。
+export const vocabularyEntries = sqliteTable(
+  'vocabulary_entries',
+  {
+    id: text('id').primaryKey(),
+    deviceId: text('device_id').notNull(),
+    word: text('word').notNull(),
+    kana: text('kana').notNull(),
+    meaning: text('meaning').notNull(),
+    usage: text('usage').notNull(),
+    sourceContext: text('source_context'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_vocabulary_device_word').on(table.deviceId, table.word),
+    index('idx_vocabulary_device_updated').on(table.deviceId, table.updatedAt),
+  ],
 );

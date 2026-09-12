@@ -62,6 +62,16 @@ export async function POST(request: Request) {
         SELECT ?, exam_date, daily_minutes, target_score, updated_at
         FROM study_profiles WHERE device_id = ?`)
         .bind(target, source),
+      db()
+        .prepare(`INSERT INTO vocabulary_entries
+        (id, device_id, word, kana, meaning, usage, source_context, created_at, updated_at)
+        SELECT id, ?, word, kana, meaning, usage, source_context, created_at, updated_at
+        FROM vocabulary_entries WHERE device_id = ?
+        ON CONFLICT(device_id, word) DO UPDATE SET kana=excluded.kana,
+        meaning=excluded.meaning, usage=excluded.usage, source_context=excluded.source_context,
+        updated_at=excluded.updated_at
+        WHERE excluded.updated_at > vocabulary_entries.updated_at`)
+        .bind(target, source),
     ]);
   }
   return Response.json({ signedIn: true, email: user.email });

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  BookMarked,
   BookOpen,
   BrainCircuit,
   CalendarDays,
@@ -17,6 +18,7 @@ import {
   NotebookPen,
   Printer,
   Play,
+  Plus,
   RotateCcw,
   Moon,
   Square,
@@ -25,8 +27,19 @@ import {
   TimerReset,
   Trophy,
   TrendingUp,
+  Trash2,
   Volume2,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import officialQuestions202512 from '@/lib/questions-2025-12.json';
 import originalWrongQuestions from '@/lib/imported-wrongs.json';
 
@@ -243,6 +256,7 @@ const nav = [
   [Target, '诊断测试'],
   [BrainCircuit, '专项训练'],
   [NotebookPen, '错题本'],
+  [BookMarked, '单词本'],
   [Trophy, '分数模拟'],
   [TrendingUp, '学习数据'],
   [TimerReset, '全真模拟'],
@@ -497,7 +511,28 @@ async function saveWrongs(deviceId: string, wrongs: Wrong[]) {
     if (!response.ok) throw new Error('failed to save wrong answers');
   }
 }
+
+/** 保存一条单词；服务端会自动按当前登录账号或访客设备归档。 */
+async function saveVocabularyEntry(deviceId: string, entry: VocabularyEntry) {
+  const response = await fetch('/api/vocabulary', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceId, entry }),
+  });
+  if (!response.ok) throw new Error('failed to save vocabulary');
+  return (await response.json()) as VocabularyEntry;
+}
 type AccountState = { signedIn: boolean; email?: string };
+type VocabularyEntry = {
+  id: string;
+  word: string;
+  kana: string;
+  meaning: string;
+  usage: string;
+  sourceContext?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
 
 /** 恢复用户原始导入的错题，不改动已有的复习记录。 */
 const importedWrongs = (): Wrong[] =>
@@ -519,6 +554,21 @@ export default function Home() {
   const [deviceId, setDeviceId] = useState('');
   const [dbReady, setDbReady] = useState(false);
   const [account, setAccount] = useState<AccountState | null>(null);
+  const [vocabulary, setVocabulary] = useState<VocabularyEntry[]>([]);
+  const [vocabularyDialogOpen, setVocabularyDialogOpen] = useState(false);
+  const [vocabularyDraft, setVocabularyDraft] = useState({
+    word: '',
+    kana: '',
+    meaning: '',
+    usage: '',
+    sourceContext: '',
+  });
+  const [selectionAction, setSelectionAction] = useState<{
+    word: string;
+    context: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [profile, setProfile] = useState<StudyProfile>({
     examDate: '2026-12-06',
     dailyMinutes: 30,
@@ -550,6 +600,9 @@ export default function Home() {
       setDone(JSON.parse(localStorage.getItem('ippo-done') || '[]'));
       const localWrongs: Wrong[] = JSON.parse(
         localStorage.getItem('ippo-wrongs') || '[]',
+      );
+      const localVocabulary: VocabularyEntry[] = JSON.parse(
+        localStorage.getItem('ippo-vocabulary') || '[]',
       );
       let id = localStorage.getItem('ippo-device-id');
       if (!id) {
@@ -613,6 +666,23 @@ export default function Home() {
           if (progress.attempts?.length) setAttempts(progress.attempts);
           if (progress.profile) setProfile(progress.profile);
         }
+        const vocabularyResponse = await fetch(
+          `/api/vocabulary?deviceId=${encodeURIComponent(id)}`,
+        );
+        if (vocabularyResponse.ok) {
+          const cloudVocabulary =
+            (await vocabularyResponse.json()) as VocabularyEntry[];
+          const merged = new Map(
+            cloudVocabulary.map((entry) => [entry.word, entry]),
+          );
+          for (const entry of localVocabulary) {
+            if (!merged.has(entry.word)) {
+              const saved = await saveVocabularyEntry(id, entry);
+              merged.set(saved.word, saved);
+            }
+          }
+          setVocabulary([...merged.values()]);
+        } else setVocabulary(localVocabulary);
         setDbReady(true);
       } catch {
         setAccount((current) => current || { signedIn: false });
@@ -626,6 +696,7 @@ export default function Home() {
         } else {
           setWrongs(localWrongs);
         }
+        setVocabulary(localVocabulary);
       }
       setLoaded(true);
     };
@@ -636,11 +707,112 @@ export default function Home() {
       localStorage.setItem('ippo-attempts', JSON.stringify(attempts));
       localStorage.setItem('ippo-wrongs', JSON.stringify(wrongs));
       localStorage.setItem('ippo-done', JSON.stringify(done));
+      localStorage.setItem('ippo-vocabulary', JSON.stringify(vocabulary));
     }
-  }, [attempts, wrongs, done, loaded]);
+  }, [attempts, wrongs, done, vocabulary, loaded]);
   useEffect(() => {
     if (dbReady && deviceId) void saveWrongs(deviceId, wrongs);
   }, [wrongs, deviceId, dbReady]);
+  /** 在题目区域选中日文后，显示一个靠近选区的“加入单词本”按钮。 */
+  useEffect(() => {
+    const captureSelection = () => {
+      window.setTimeout(() => {
+        const selection = window.getSelection();
+        const target = selection?.anchorNode?.parentElement;
+        const word = selection
+          ?.toString()
+          .trim()
+          .replace(/^[「『（(\s]+|[」』）)、。！？!?\s]+$/g, '');
+        const learningArea = target?.closest(
+          '.question-card, .exam-question-card, .wrong-real, .passage',
+        );
+        if (
+          !selection ||
+          !word ||
+          word.length > 40 ||
+          !/[ぁ-んァ-ヶ一-龠々ー]/.test(word) ||
+          !learningArea
+        ) {
+          setSelectionAction(null);
+          return;
+        }
+        const rect = selection.getRangeAt(0).getBoundingClientRect();
+        setSelectionAction({
+          word,
+          context: learningArea.textContent?.trim().slice(0, 500) || '',
+          x: Math.min(
+            Math.max(rect.left + rect.width / 2, 76),
+            window.innerWidth - 76,
+          ),
+          y: Math.max(rect.top - 46, 12),
+        });
+      }, 0);
+    };
+    document.addEventListener('mouseup', captureSelection);
+    document.addEventListener('touchend', captureSelection);
+    return () => {
+      document.removeEventListener('mouseup', captureSelection);
+      document.removeEventListener('touchend', captureSelection);
+    };
+  }, []);
+  /** 打开统一的单词编辑表单；题目选词时会自动填好日文和来源。 */
+  const openVocabularyDialog = (word = '', sourceContext = '') => {
+    setVocabularyDraft({
+      word,
+      kana: '',
+      meaning: '',
+      usage: '',
+      sourceContext,
+    });
+    setSelectionAction(null);
+    setVocabularyDialogOpen(true);
+  };
+  /** 保存完整词条，同一个日文词再次保存时更新原词条而不重复创建。 */
+  const addVocabulary = async () => {
+    if (
+      !deviceId ||
+      !vocabularyDraft.word.trim() ||
+      !vocabularyDraft.kana.trim() ||
+      !vocabularyDraft.meaning.trim() ||
+      !vocabularyDraft.usage.trim()
+    )
+      return;
+    const existing = vocabulary.find(
+      (entry) => entry.word === vocabularyDraft.word.trim(),
+    );
+    const provisional: VocabularyEntry = {
+      id: existing?.id || crypto.randomUUID(),
+      ...vocabularyDraft,
+      word: vocabularyDraft.word.trim(),
+      kana: vocabularyDraft.kana.trim(),
+      meaning: vocabularyDraft.meaning.trim(),
+      usage: vocabularyDraft.usage.trim(),
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      const saved = await saveVocabularyEntry(deviceId, provisional);
+      setVocabulary((current) => [
+        saved,
+        ...current.filter((entry) => entry.word !== saved.word),
+      ]);
+      setVocabularyDialogOpen(false);
+    } catch {
+      setVocabulary((current) => [
+        provisional,
+        ...current.filter((entry) => entry.word !== provisional.word),
+      ]);
+      setVocabularyDialogOpen(false);
+    }
+  };
+  /** 删除指定词条；数据库暂时离线时也先从本地列表移除。 */
+  const deleteVocabulary = async (id: string) => {
+    setVocabulary((current) => current.filter((entry) => entry.id !== id));
+    if (deviceId)
+      void fetch(
+        `/api/vocabulary?deviceId=${encodeURIComponent(deviceId)}&id=${encodeURIComponent(id)}`,
+        { method: 'DELETE' },
+      );
+  };
   // 根据所有作答记录整理首页、分数模拟和学习数据页共用的统计结果。
   const stats = useMemo(() => {
     /** 计算某一个学习模块的真实答题正确率。 */
@@ -858,6 +1030,13 @@ export default function Home() {
         {active === '错题本' && (
           <WrongBook wrongs={wrongs} setWrongs={setWrongs} />
         )}{' '}
+        {active === '单词本' && (
+          <VocabularyBook
+            entries={vocabulary}
+            onAdd={() => openVocabularyDialog()}
+            onDelete={deleteVocabulary}
+          />
+        )}{' '}
         {active === '分数模拟' && (
           <Score stats={stats} attempts={attempts} go={setActive} />
         )}{' '}
@@ -876,6 +1055,119 @@ export default function Home() {
           <StudyAssistant attempts={attempts} wrongs={wrongs} />
         )}
       </section>
+      {selectionAction && (
+        <button
+          className="selection-vocabulary-button"
+          style={{ left: selectionAction.x, top: selectionAction.y }}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() =>
+            openVocabularyDialog(selectionAction.word, selectionAction.context)
+          }
+        >
+          <Plus size={15} /> 加入单词本
+        </button>
+      )}
+      <Dialog
+        open={vocabularyDialogOpen}
+        onOpenChange={setVocabularyDialogOpen}
+      >
+        <DialogContent className="vocabulary-dialog">
+          <DialogHeader>
+            <DialogTitle>收录单词</DialogTitle>
+            <DialogDescription>
+              请补全读音、含义与使用场景，保存后可在“单词本”中复习。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="vocabulary-form">
+            <label>
+              <span>日文</span>
+              <Input
+                value={vocabularyDraft.word}
+                onChange={(event) =>
+                  setVocabularyDraft((draft) => ({
+                    ...draft,
+                    word: event.target.value,
+                  }))
+                }
+                placeholder="例：見落とす"
+              />
+            </label>
+            <label>
+              <span>假名</span>
+              <Input
+                value={vocabularyDraft.kana}
+                onChange={(event) =>
+                  setVocabularyDraft((draft) => ({
+                    ...draft,
+                    kana: event.target.value,
+                  }))
+                }
+                placeholder="例：みおとす"
+              />
+            </label>
+            <label>
+              <span>中文意思</span>
+              <Input
+                value={vocabularyDraft.meaning}
+                onChange={(event) =>
+                  setVocabularyDraft((draft) => ({
+                    ...draft,
+                    meaning: event.target.value,
+                  }))
+                }
+                placeholder="例：看漏、忽略"
+              />
+            </label>
+            <label>
+              <span>使用细节与场景</span>
+              <Textarea
+                value={vocabularyDraft.usage}
+                onChange={(event) =>
+                  setVocabularyDraft((draft) => ({
+                    ...draft,
+                    usage: event.target.value,
+                  }))
+                }
+                placeholder="写明搭配、语气、适用场景或容易混淆的表达"
+              />
+            </label>
+            {vocabularyDraft.sourceContext && (
+              <label>
+                <span>题目出处</span>
+                <Textarea
+                  value={vocabularyDraft.sourceContext}
+                  onChange={(event) =>
+                    setVocabularyDraft((draft) => ({
+                      ...draft,
+                      sourceContext: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            )}
+          </div>
+          <DialogFooter>
+            <button
+              className="ghost vocabulary-cancel"
+              onClick={() => setVocabularyDialogOpen(false)}
+            >
+              取消
+            </button>
+            <button
+              className="solid"
+              disabled={
+                !vocabularyDraft.word.trim() ||
+                !vocabularyDraft.kana.trim() ||
+                !vocabularyDraft.meaning.trim() ||
+                !vocabularyDraft.usage.trim()
+              }
+              onClick={addVocabulary}
+            >
+              保存到单词本
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
@@ -2140,6 +2432,90 @@ function ExamQuestionCard({
       )}
       {children}
     </section>
+  );
+}
+
+/** 单词本页面：集中展示词形、读音、释义、用法和原题语境。 */
+function VocabularyBook({
+  entries,
+  onAdd,
+  onDelete,
+}: {
+  entries: VocabularyEntry[];
+  onAdd: () => void;
+  onDelete: (id: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const filtered = entries.filter((entry) =>
+    `${entry.word} ${entry.kana} ${entry.meaning} ${entry.usage}`
+      .toLowerCase()
+      .includes(query.trim().toLowerCase()),
+  );
+  return (
+    <div className="workspace vocabulary-workspace">
+      <div className="simple-title vocabulary-title">
+        <div>
+          <span className="kicker">词汇积累</span>
+          <h1>单词本</h1>
+          <p>可手动添加，也可在题目中选中日文后直接收录。</p>
+        </div>
+        <button className="solid" onClick={onAdd}>
+          <Plus size={17} /> 手动添加
+        </button>
+      </div>
+      {entries.length > 0 && (
+        <Input
+          className="vocabulary-search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="搜索日文、假名、中文或使用场景"
+          aria-label="搜索单词本"
+        />
+      )}
+      {entries.length === 0 ? (
+        <Empty
+          text="单词本还是空的"
+          sub="点击“手动添加”，或在题目里选中想记住的日文。"
+        />
+      ) : filtered.length === 0 ? (
+        <Empty text="没有找到相关单词" sub="换一个关键词试试。" />
+      ) : (
+        <div className="vocabulary-grid">
+          {filtered.map((entry) => (
+            <article className="vocabulary-card" key={entry.id}>
+              <div className="vocabulary-card-head">
+                <div>
+                  <h2>{entry.word}</h2>
+                  <p>{entry.kana}</p>
+                </div>
+                <button
+                  className="vocabulary-delete"
+                  onClick={() => {
+                    if (confirm(`确定从单词本删除「${entry.word}」吗？`))
+                      onDelete(entry.id);
+                  }}
+                  aria-label={`删除 ${entry.word}`}
+                  title="删除这个词"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+              <div className="vocabulary-meaning">{entry.meaning}</div>
+              <section>
+                <b>使用细节与场景</b>
+                <p>{entry.usage}</p>
+              </section>
+              {entry.sourceContext && (
+                <details>
+                  <summary>查看收录时的题目语境</summary>
+                  <p>{entry.sourceContext}</p>
+                </details>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
