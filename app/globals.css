@@ -2844,11 +2844,90 @@ button {
   display: grid;
   gap: 3px;
   font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+.review-rating button:hover {
+  transform: translateY(-1px);
+}
+.review-rating button:active {
+  transform: scale(0.97);
+}
+.review-rating button.again.recorded {
+  border-color: #ca6457;
+  background: #fde5e1;
+  color: #8a2f25;
+  box-shadow: 0 5px 14px #8f30231f;
+}
+.review-rating button.hard.recorded {
+  border-color: #c7922d;
+  background: #fff2cf;
+  color: #73500e;
+  box-shadow: 0 5px 14px #89610d1f;
+}
+.review-rating button.easy.recorded {
+  border-color: #3c9a70;
+  background: #d9f4e5;
+  color: #17613f;
+  box-shadow: 0 5px 14px #17613f1f;
+}
+.review-rating button.recorded small {
+  color: currentColor;
+  font-weight: 750;
 }
 .review-rating small,
 .review-meta {
   color: var(--muted-foreground);
   font-size: 11px;
+}
+.review-toast.again {
+  border-color: #ca6457;
+  background: #fff2ef;
+  color: #8a2f25;
+}
+.review-toast.hard {
+  border-color: #c7922d;
+  background: #fff8e4;
+  color: #73500e;
+}
+.review-toast.easy {
+  border-color: #3c9a70;
+  background: #effaf4;
+  color: #17613f;
+}
+:root[data-theme='dark'] .review-rating button.again.recorded {
+  border-color: #e07a6d;
+  background: #4a211f;
+  color: #ffd2cc;
+}
+:root[data-theme='dark'] .review-rating button.hard.recorded {
+  border-color: #d9a847;
+  background: #463719;
+  color: #ffe3a3;
+}
+:root[data-theme='dark'] .review-rating button.easy.recorded {
+  border-color: #45b77d;
+  background: #163f2d;
+  color: #c7f9dd;
+}
+:root[data-theme='dark'] .review-toast.again {
+  border-color: #e07a6d;
+  background: #4a211f;
+  color: #ffd2cc;
+}
+:root[data-theme='dark'] .review-toast.hard {
+  border-color: #d9a847;
+  background: #463719;
+  color: #ffe3a3;
+}
+:root[data-theme='dark'] .review-toast.easy {
+  border-color: #45b77d;
+  background: #163f2d;
+  color: #c7f9dd;
 }
 .assistant-layout {
   display: grid;

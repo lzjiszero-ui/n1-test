@@ -2074,11 +2074,19 @@ function WrongBook({
     id: number;
     mastered: boolean;
   } | null>(null);
+  const [reviewNotice, setReviewNotice] = useState<{
+    id: number;
+    quality: 'again' | 'hard' | 'easy';
+    days: number;
+  } | null>(null);
   const masterNoticeTimer = useRef<number | null>(null);
+  const reviewNoticeTimer = useRef<number | null>(null);
   useEffect(
     () => () => {
       if (masterNoticeTimer.current)
         window.clearTimeout(masterNoticeTimer.current);
+      if (reviewNoticeTimer.current)
+        window.clearTimeout(reviewNoticeTimer.current);
     },
     [],
   );
@@ -2142,6 +2150,7 @@ function WrongBook({
       nextReview: later(mastered ? 7 : 1),
     });
     setMasterNotice({ id: wrong.id, mastered });
+    setReviewNotice(null);
     if (masterNoticeTimer.current)
       window.clearTimeout(masterNoticeTimer.current);
     masterNoticeTimer.current = window.setTimeout(
@@ -2169,6 +2178,14 @@ function WrongBook({
       nextReview: later(intervals),
       mastered: quality === 'easy' && stage >= 4,
     });
+    setMasterNotice(null);
+    setReviewNotice({ id: wrong.id, quality, days: intervals });
+    if (reviewNoticeTimer.current)
+      window.clearTimeout(reviewNoticeTimer.current);
+    reviewNoticeTimer.current = window.setTimeout(
+      () => setReviewNotice(null),
+      2400,
+    );
   };
   // 同时应用掌握状态、真题年份和“今天到期”三个筛选条件。
   const filtered = wrongs.filter((wrong) => {
@@ -2200,6 +2217,29 @@ function WrongBook({
               {masterNotice.mastered
                 ? '7 天后再次提醒，可随时撤销'
                 : '明天将再次复习'}
+            </small>
+          </span>
+        </div>
+      )}
+      {reviewNotice && (
+        <div
+          className={`master-toast review-toast ${reviewNotice.quality}`}
+          role="status"
+          aria-live="polite"
+        >
+          <Check size={18} strokeWidth={2.5} />
+          <span>
+            <b>
+              {reviewNotice.quality === 'again'
+                ? '已记录：忘记了'
+                : reviewNotice.quality === 'hard'
+                  ? '已记录：有点模糊'
+                  : '已记录：熟练掌握'}
+            </b>
+            <small>
+              {reviewNotice.days === 1
+                ? '明天再练'
+                : `复习间隔已调整为 ${reviewNotice.days} 天`}
             </small>
           </span>
         </div>
@@ -2420,14 +2460,53 @@ function WrongBook({
                       {w.mastered ? '已掌握 · 点击撤销' : '标记已掌握'}
                     </button>
                     <div className="review-rating" aria-label="复习结果">
-                      <button onClick={() => review(w, 'again')}>
-                        忘记了<small>明天再练</small>
+                      <button
+                        className={`again ${reviewNotice?.id === w.id && reviewNotice.quality === 'again' ? 'recorded' : ''}`}
+                        aria-pressed={
+                          reviewNotice?.id === w.id &&
+                          reviewNotice.quality === 'again'
+                        }
+                        onClick={() => review(w, 'again')}
+                      >
+                        忘记了
+                        <small>
+                          {reviewNotice?.id === w.id &&
+                          reviewNotice.quality === 'again'
+                            ? '✓ 已记录'
+                            : '明天再练'}
+                        </small>
                       </button>
-                      <button onClick={() => review(w, 'hard')}>
-                        有点模糊<small>缩短间隔</small>
+                      <button
+                        className={`hard ${reviewNotice?.id === w.id && reviewNotice.quality === 'hard' ? 'recorded' : ''}`}
+                        aria-pressed={
+                          reviewNotice?.id === w.id &&
+                          reviewNotice.quality === 'hard'
+                        }
+                        onClick={() => review(w, 'hard')}
+                      >
+                        有点模糊
+                        <small>
+                          {reviewNotice?.id === w.id &&
+                          reviewNotice.quality === 'hard'
+                            ? '✓ 已记录'
+                            : '缩短间隔'}
+                        </small>
                       </button>
-                      <button onClick={() => review(w, 'easy')}>
-                        熟练掌握<small>延长间隔</small>
+                      <button
+                        className={`easy ${reviewNotice?.id === w.id && reviewNotice.quality === 'easy' ? 'recorded' : ''}`}
+                        aria-pressed={
+                          reviewNotice?.id === w.id &&
+                          reviewNotice.quality === 'easy'
+                        }
+                        onClick={() => review(w, 'easy')}
+                      >
+                        熟练掌握
+                        <small>
+                          {reviewNotice?.id === w.id &&
+                          reviewNotice.quality === 'easy'
+                            ? '✓ 已记录'
+                            : '延长间隔'}
+                        </small>
                       </button>
                     </div>
                     <p className="review-meta">
