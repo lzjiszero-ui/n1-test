@@ -11,6 +11,8 @@ import {
   Flame,
   Headphones,
   LayoutDashboard,
+  LogIn,
+  LogOut,
   MessageCircle,
   NotebookPen,
   Printer,
@@ -472,6 +474,7 @@ async function saveWrongs(deviceId: string, wrongs: Wrong[]) {
     if (!response.ok) throw new Error('failed to save wrong answers');
   }
 }
+type AccountState = { signedIn: boolean; email?: string };
 
 /** 恢复用户原始导入的错题，不改动已有的复习记录。 */
 const importedWrongs = (): Wrong[] =>
@@ -492,6 +495,7 @@ export default function Home() {
   const [loaded, setLoaded] = useState(false);
   const [deviceId, setDeviceId] = useState('');
   const [dbReady, setDbReady] = useState(false);
+  const [account, setAccount] = useState<AccountState | null>(null);
   const [profile, setProfile] = useState<StudyProfile>({
     examDate: '2026-12-06',
     dailyMinutes: 30,
@@ -531,7 +535,24 @@ export default function Home() {
       }
       setDeviceId(id);
       try {
-        if (localWrongs.length) {
+        // 登录后先把这台设备的历史数据并入账号，再读取账号的完整记录。
+        const accountResponse = await fetch('/api/account', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ deviceId: id }),
+        });
+        const signedIn = accountResponse.ok;
+        if (signedIn) {
+          setAccount(await accountResponse.json());
+        } else {
+          const statusResponse = await fetch('/api/account');
+          setAccount(
+            statusResponse.ok
+              ? await statusResponse.json()
+              : { signedIn: false },
+          );
+        }
+        if (!signedIn && localWrongs.length) {
           await saveWrongs(id, localWrongs);
         }
         const response = await fetch(
@@ -548,6 +569,15 @@ export default function Home() {
           await saveWrongs(id, hydrated);
           localStorage.setItem('ippo-original-wrongs-v3', '1');
         }
+        // 账号初次建立时，补上只存在于当前浏览器缓存中的题目。
+        if (signedIn && localWrongs.length) {
+          const merged = new Map(hydrated.map((wrong) => [wrong.id, wrong]));
+          localWrongs.forEach((wrong) => {
+            if (!merged.has(wrong.id)) merged.set(wrong.id, wrong);
+          });
+          hydrated = [...merged.values()];
+          await saveWrongs(id, hydrated);
+        }
         setWrongs(hydrated);
         const progressResponse = await fetch(
           `/api/progress?deviceId=${encodeURIComponent(id)}`,
@@ -562,6 +592,7 @@ export default function Home() {
         }
         setDbReady(true);
       } catch {
+        setAccount((current) => current || { signedIn: false });
         if (!localStorage.getItem('ippo-original-wrongs-v3')) {
           const merged = new Map(localWrongs.map((wrong) => [wrong.id, wrong]));
           importedWrongs().forEach((wrong) => {
@@ -688,7 +719,11 @@ export default function Home() {
           <span className="brand-mark">一</span>
           <div>
             <b>一歩 N1</b>
-            <small>数据保存在此设备</small>
+            <small>
+              {account?.signedIn
+                ? '学习记录已跨设备同步'
+                : '访客数据保存在此设备'}
+            </small>
           </div>
         </div>
         <nav>
@@ -711,7 +746,9 @@ export default function Home() {
           <b>{dbReady ? '数据库已连接' : '离线备用模式'}</b>
           <p>
             {dbReady
-              ? '错题已同步到站点数据库；学习进度仍保存在当前设备。'
+              ? account?.signedIn
+                ? `已登录 ${account.email}，电脑与手机会同步。`
+                : '当前为访客模式；登录后可在电脑与手机之间同步。'
               : '数据库暂时不可用，错题会先保存在当前设备。'}
           </p>
           <button onClick={reset}>
@@ -726,6 +763,27 @@ export default function Home() {
             <span>
               <Flame size={17} /> 今天已完成 {done.length} 项
             </span>
+            {account?.signedIn ? (
+              <a
+                className="account-button signed-in"
+                href="/signout-with-chatgpt?return_to=%2F"
+                target="_top"
+                title={`${account.email}（点击退出）`}
+              >
+                <LogOut size={16} />
+                <span>{account.email}</span>
+              </a>
+            ) : (
+              <a
+                className="account-button"
+                href="/signin-with-chatgpt?return_to=%2F"
+                target="_top"
+                title="使用邮箱验证码安全登录"
+              >
+                <LogIn size={16} />
+                <span>邮箱验证码登录</span>
+              </a>
+            )}
             <button
               className="theme-toggle"
               onClick={toggleTheme}

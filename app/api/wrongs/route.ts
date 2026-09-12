@@ -1,13 +1,23 @@
 import { env } from 'cloudflare:workers';
+import { getChatGPTUser } from '@/app/chatgpt-auth';
 
 type DbEnv = { DB: D1Database };
 
 // 取得 Cloudflare 提供的 D1 数据库连接，下面三个接口都会通过它读写错题。
 const db = () => (env as unknown as DbEnv).DB;
 
+/** 登录后始终使用账号编号；未登录时才使用浏览器设备编号。 */
+async function ownerKey(deviceId: string | null) {
+  const user = await getChatGPTUser();
+  if (user) return `account:${user.userId}`;
+  return deviceId;
+}
+
 // 读取某台设备保存的全部错题，并优先返回尚未掌握、最近更新的记录。
 export async function GET(request: Request) {
-  const deviceId = new URL(request.url).searchParams.get('deviceId');
+  const deviceId = await ownerKey(
+    new URL(request.url).searchParams.get('deviceId'),
+  );
   if (!deviceId)
     return Response.json({ error: 'deviceId is required' }, { status: 400 });
   const result = await db()
@@ -35,7 +45,8 @@ export async function POST(request: Request) {
       lastReviewedAt?: string;
     }>;
   };
-  if (!body.deviceId || !Array.isArray(body.items))
+  const deviceId = await ownerKey(body.deviceId || null);
+  if (!deviceId || !Array.isArray(body.items))
     return Response.json({ error: 'invalid payload' }, { status: 400 });
   const now = new Date().toISOString();
   if (body.items.length) {
@@ -53,7 +64,7 @@ export async function POST(request: Request) {
           review_count=excluded.review_count, last_reviewed_at=excluded.last_reviewed_at,
           updated_at=excluded.updated_at`)
           .bind(
-            body.deviceId,
+            deviceId,
             item.id,
             item.module,
             item.type,
@@ -72,4 +83,3 @@ export async function POST(request: Request) {
   }
   return Response.json({ ok: true, count: body.items.length });
 }
-

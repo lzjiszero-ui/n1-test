@@ -1172,6 +1172,45 @@ button {
   align-items: center;
   gap: 14px;
 }
+.account-button {
+  min-height: 34px;
+  max-width: 230px;
+  padding: 0 12px;
+  border: 1px solid #b8d8ca;
+  border-radius: 8px;
+  background: #edf8f3;
+  color: #236b50;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    transform 150ms ease;
+}
+.account-button:hover {
+  background: #dff2e9;
+  border-color: #83bda4;
+  transform: translateY(-1px);
+}
+.account-button span {
+  color: currentColor;
+  font-size: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-button svg {
+  color: currentColor;
+  flex: 0 0 auto;
+}
+.account-button.signed-in {
+  background: #f4f7f5;
+  color: #476057;
+}
 .theme-toggle {
   width: 34px;
   height: 34px;
@@ -2578,6 +2617,7 @@ button {
   background: #1b2c24;
 }
 :root[data-theme='dark'] .theme-toggle,
+:root[data-theme='dark'] .account-button,
 :root[data-theme='dark'] .real-task,
 :root[data-theme='dark'] .practice-modules > button,
 :root[data-theme='dark'] .answer-options button,
@@ -2591,6 +2631,15 @@ button {
 :root[data-theme='dark'] .wrong-real select {
   background: #202b26;
   color: var(--ink);
+}
+:root[data-theme='dark'] .account-button {
+  border-color: #456b5b;
+  background: #21372e;
+  color: #bcebd5;
+}
+:root[data-theme='dark'] .account-button:hover {
+  background: #2a493c;
+  border-color: #60977f;
 }
 :root[data-theme='dark'] .theme-toggle:hover,
 :root[data-theme='dark'] .real-task:hover,
@@ -3122,6 +3171,18 @@ button {
   }
   .real-top > b {
     display: block;
+  }
+  .top-actions {
+    gap: 8px;
+  }
+  .top-actions > span {
+    display: none;
+  }
+  .account-button {
+    max-width: 154px;
+    min-height: 32px;
+    padding: 0 9px;
+    font-size: 11px;
   }
   .workspace {
     padding: 24px 15px 40px;
