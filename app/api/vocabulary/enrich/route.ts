@@ -31,6 +31,61 @@ const partOfSpeechLabels: Array<[RegExp, string]> = [
   [/suffix/i, '接尾词'],
 ];
 
+// 高频真题词的站内兜底资料；外部服务中断时也能完成常见词的收录。
+const localEntries: Record<
+  string,
+  { kana: string; meaning: string; usage: string }
+> = {
+  弁護士: {
+    kana: 'べんごし',
+    meaning: '律师',
+    usage:
+      '名词。指取得资格、为委托人提供法律咨询或代理诉讼的专业人士。常见于「弁護士に相談する」「弁護士として働く」。',
+  },
+  見落とす: {
+    kana: 'みおとす',
+    meaning: '看漏；忽略',
+    usage:
+      '他动词。用于因疏忽而没有注意到信息、问题或细节，常见搭配有「重要な点を見落とす」。',
+  },
+  目まぐるしい: {
+    kana: 'めまぐるしい',
+    meaning: '瞬息万变；令人眼花缭乱',
+    usage:
+      'い形容词。形容变化或活动非常快速、让人难以跟上，常用于「目まぐるしい変化」「目まぐるしい一日」。',
+  },
+  軌道: {
+    kana: 'きどう',
+    meaning: '轨道；既定路线',
+    usage:
+      '名词。既可指天体或车辆的轨道，也可比喻事情进入正常状态，如「事業が軌道に乗る」「計画を軌道修正する」。',
+  },
+  間柄: {
+    kana: 'あいだがら',
+    meaning: '关系；交情',
+    usage:
+      '名词。强调人与人之间的关系性质，常见于「親しい間柄」「家族同然の間柄」。',
+  },
+  閉鎖: {
+    kana: 'へいさ',
+    meaning: '关闭；封闭',
+    usage:
+      '名词、サ变动词。用于设施、道路、组织或网络空间停止开放，如「道路を閉鎖する」「閉鎖的な環境」。',
+  },
+  潜む: {
+    kana: 'ひそむ',
+    meaning: '潜藏；隐藏',
+    usage:
+      '自动词。表示人或事物藏在不易察觉之处，也常用于抽象风险，如「危険が潜む」「物陰に潜む」。',
+  },
+  躊躇: {
+    kana: 'ちゅうちょ',
+    meaning: '犹豫；踌躇',
+    usage:
+      '名词、サ变动词。表示因顾虑而无法立即行动，常见于「返事を躊躇する」「躊躇なく」。',
+  },
+};
+
 /** 把词典中的英文说明转为学习者更容易理解的中文。 */
 async function translateToChinese(text: string) {
   try {
@@ -69,6 +124,161 @@ async function translateToChinese(text: string) {
 const readingFromRuby = (rubyText = '') =>
   rubyText.replace(/[一-龠々]+\[([^\]]+)\]/g, '$1').replace(/[\[\]]/g, '');
 
+const romajiPairs: Record<string, string> = {
+  kya: 'きゃ',
+  kyu: 'きゅ',
+  kyo: 'きょ',
+  gya: 'ぎゃ',
+  gyu: 'ぎゅ',
+  gyo: 'ぎょ',
+  sha: 'しゃ',
+  shu: 'しゅ',
+  sho: 'しょ',
+  ja: 'じゃ',
+  ju: 'じゅ',
+  jo: 'じょ',
+  cha: 'ちゃ',
+  chu: 'ちゅ',
+  cho: 'ちょ',
+  nya: 'にゃ',
+  nyu: 'にゅ',
+  nyo: 'にょ',
+  hya: 'ひゃ',
+  hyu: 'ひゅ',
+  hyo: 'ひょ',
+  bya: 'びゃ',
+  byu: 'びゅ',
+  byo: 'びょ',
+  pya: 'ぴゃ',
+  pyu: 'ぴゅ',
+  pyo: 'ぴょ',
+  mya: 'みゃ',
+  myu: 'みゅ',
+  myo: 'みょ',
+  rya: 'りゃ',
+  ryu: 'りゅ',
+  ryo: 'りょ',
+  shi: 'し',
+  chi: 'ち',
+  tsu: 'つ',
+  fu: 'ふ',
+  a: 'あ',
+  i: 'い',
+  u: 'う',
+  e: 'え',
+  o: 'お',
+  ka: 'か',
+  ki: 'き',
+  ku: 'く',
+  ke: 'け',
+  ko: 'こ',
+  ga: 'が',
+  gi: 'ぎ',
+  gu: 'ぐ',
+  ge: 'げ',
+  go: 'ご',
+  sa: 'さ',
+  su: 'す',
+  se: 'せ',
+  so: 'そ',
+  za: 'ざ',
+  ji: 'じ',
+  zu: 'ず',
+  ze: 'ぜ',
+  zo: 'ぞ',
+  ta: 'た',
+  te: 'て',
+  to: 'と',
+  da: 'だ',
+  de: 'で',
+  do: 'ど',
+  na: 'な',
+  ni: 'に',
+  nu: 'ぬ',
+  ne: 'ね',
+  no: 'の',
+  ha: 'は',
+  hi: 'ひ',
+  he: 'へ',
+  ho: 'ほ',
+  ba: 'ば',
+  bi: 'び',
+  bu: 'ぶ',
+  be: 'べ',
+  bo: 'ぼ',
+  pa: 'ぱ',
+  pi: 'ぴ',
+  pu: 'ぷ',
+  pe: 'ぺ',
+  po: 'ぽ',
+  ma: 'ま',
+  mi: 'み',
+  mu: 'む',
+  me: 'め',
+  mo: 'も',
+  ya: 'や',
+  yu: 'ゆ',
+  yo: 'よ',
+  ra: 'ら',
+  ri: 'り',
+  ru: 'る',
+  re: 'れ',
+  ro: 'ろ',
+  wa: 'わ',
+  wo: 'を',
+  n: 'ん',
+};
+
+/** 把翻译服务返回的 Hepburn 罗马字转换为平假名。 */
+function romajiToHiragana(value: string) {
+  let source = value.toLowerCase().replace(/[^a-z'-]/g, '');
+  let result = '';
+  while (source) {
+    if (
+      source.length > 1 &&
+      source[0] === source[1] &&
+      /[bcdfghjkmprstz]/.test(source[0])
+    ) {
+      result += 'っ';
+      source = source.slice(1);
+      continue;
+    }
+    if (source.startsWith("n'")) {
+      result += 'ん';
+      source = source.slice(2);
+      continue;
+    }
+    const key = [3, 2, 1]
+      .map((length) => source.slice(0, length))
+      .find((part) => romajiPairs[part]);
+    if (!key) {
+      source = source.slice(1);
+      continue;
+    }
+    result += romajiPairs[key];
+    source = source.slice(key.length);
+  }
+  return result;
+}
+
+/** 单次请求同时取得中文释义和日文罗马字读音。 */
+async function queryDirectTranslation(query: string) {
+  const response = await fetch(
+    `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=zh-CN&dt=t&dt=rm&q=${encodeURIComponent(query)}`,
+  );
+  if (!response.ok) return null;
+  const data = (await response.json()) as any[];
+  const parts = Array.isArray(data[0]) ? data[0] : [];
+  const meaning = parts
+    .map((part: any[]) => (typeof part?.[0] === 'string' ? part[0] : ''))
+    .join('')
+    .trim();
+  const romaji =
+    parts.find((part: any[]) => typeof part?.[3] === 'string')?.[3] || '';
+  const kana = romajiToHiragana(romaji);
+  return meaning && kana ? { meaning, kana } : null;
+}
+
 /** 优先查询对云端更稳定的 JMdict 服务。 */
 async function queryJiten(query: string) {
   const response = await fetch(
@@ -91,7 +301,25 @@ export async function POST(request: Request) {
   if (!query || query.length > 40 || !/[ぁ-んァ-ヶ一-龠々ー]/.test(query))
     return Response.json({ error: '请输入日文汉字或假名' }, { status: 400 });
 
+  if (localEntries[query])
+    return Response.json({ word: query, ...localEntries[query] });
+
   try {
+    const direct = await queryDirectTranslation(query).catch(() => null);
+    if (direct) {
+      const kind = query.endsWith('する')
+        ? 'サ变动词'
+        : query.endsWith('い')
+          ? '词汇或活用表达'
+          : '名词或固定表达';
+      return Response.json({
+        word: query,
+        kana: direct.kana,
+        meaning: direct.meaning,
+        usage: `词汇类型参考：${kind}。常用于表达“${direct.meaning}”的语境。具体词性、语气和搭配请结合收录时保留的原题语境理解。`,
+      });
+    }
+
     const jitenEntry = await queryJiten(query).catch(() => null);
     if (jitenEntry) {
       const definitions = (jitenEntry.meanings || []).slice(0, 6);
