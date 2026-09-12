@@ -43,8 +43,7 @@ export async function POST(request: Request) {
     !owner ||
     !entry?.word?.trim() ||
     !entry.kana?.trim() ||
-    !entry.meaning?.trim() ||
-    !entry.usage?.trim()
+    !entry.meaning?.trim()
   )
     return Response.json({ error: 'incomplete entry' }, { status: 400 });
   const now = new Date().toISOString();
@@ -62,7 +61,7 @@ export async function POST(request: Request) {
       entry.word.trim(),
       entry.kana.trim(),
       entry.meaning.trim(),
-      entry.usage.trim(),
+      entry.usage?.trim() || '',
       entry.sourceContext?.trim() || null,
       now,
       now,

@@ -36,6 +36,51 @@ const localEntries: Record<
   string,
   { kana: string; meaning: string; usage: string }
 > = {
+  軋轢: {
+    kana: 'あつれき',
+    meaning: '摩擦；不和；冲突',
+    usage: '',
+  },
+  大抵: {
+    kana: 'たいてい',
+    meaning: '大抵；大多；通常',
+    usage: '',
+  },
+  挫折: {
+    kana: 'ざせつ',
+    meaning: '挫折；受挫',
+    usage: '',
+  },
+  逃避: {
+    kana: 'とうひ',
+    meaning: '逃避',
+    usage: '',
+  },
+  模索: {
+    kana: 'もさく',
+    meaning: '摸索；探索',
+    usage: '',
+  },
+  無個性: {
+    kana: 'むこせい',
+    meaning: '没有个性；缺乏个性',
+    usage: '',
+  },
+  突っ張る: {
+    kana: 'つっぱる',
+    meaning: '撑住；顶住；逞强',
+    usage: '',
+  },
+  いじける: {
+    kana: 'いじける',
+    meaning: '闹别扭；畏缩；变得消沉',
+    usage: '',
+  },
+  採択: {
+    kana: 'さいたく',
+    meaning: '采纳；采用；通过',
+    usage: '',
+  },
   弁護士: {
     kana: 'べんごし',
     meaning: '律师',

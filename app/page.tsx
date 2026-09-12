@@ -525,11 +525,20 @@ type VocabularyEntry = {
   word: string;
   kana: string;
   meaning: string;
-  usage: string;
+  usage?: string;
   sourceContext?: string;
   createdAt?: string;
   updatedAt?: string;
 };
+
+// 修正曾被免费词典保存成英文的词条；读取时自动更新本地与云端记录。
+const vocabularyMeaningCorrections: Record<string, string> = {
+  軋轢: '摩擦；不和；冲突',
+};
+const normalizeVocabularyEntry = (entry: VocabularyEntry): VocabularyEntry => ({
+  ...entry,
+  meaning: vocabularyMeaningCorrections[entry.word] || entry.meaning,
+});
 
 /** 恢复用户原始导入的错题，不改动已有的复习记录。 */
 const importedWrongs = (): Wrong[] =>
@@ -600,9 +609,11 @@ export default function Home() {
       const localWrongs: Wrong[] = JSON.parse(
         localStorage.getItem('ippo-wrongs') || '[]',
       );
-      const localVocabulary: VocabularyEntry[] = JSON.parse(
-        localStorage.getItem('ippo-vocabulary') || '[]',
-      );
+      const localVocabulary: VocabularyEntry[] = (
+        JSON.parse(
+          localStorage.getItem('ippo-vocabulary') || '[]',
+        ) as VocabularyEntry[]
+      ).map(normalizeVocabularyEntry);
       let id = localStorage.getItem('ippo-device-id');
       if (!id) {
         id = crypto.randomUUID();
@@ -669,11 +680,17 @@ export default function Home() {
           `/api/vocabulary?deviceId=${encodeURIComponent(id)}`,
         );
         if (vocabularyResponse.ok) {
-          const cloudVocabulary =
+          const rawCloudVocabulary =
             (await vocabularyResponse.json()) as VocabularyEntry[];
+          const cloudVocabulary = rawCloudVocabulary.map(normalizeVocabularyEntry);
           const merged = new Map(
             cloudVocabulary.map((entry) => [entry.word, entry]),
           );
+          for (const entry of cloudVocabulary) {
+            const original = rawCloudVocabulary.find((item) => item.id === entry.id);
+            if (original?.meaning !== entry.meaning)
+              await saveVocabularyEntry(id, entry);
+          }
           for (const entry of localVocabulary) {
             if (!merged.has(entry.word)) {
               const saved = await saveVocabularyEntry(id, entry);
@@ -768,7 +785,7 @@ export default function Home() {
     setVocabularySaving(false);
     setVocabularyDialogOpen(true);
   };
-  /** 自动查询读音、中文释义和用法，再保存完整词条。 */
+  /** 自动查询读音和中文释义，再保存为单词本表格中的一行。 */
   const addVocabulary = async () => {
     const requestedWord = vocabularyDraft.word.trim();
     if (!deviceId || !requestedWord || vocabularySaving) return;
@@ -788,8 +805,7 @@ export default function Home() {
         !enrichResponse.ok ||
         !enriched.word ||
         !enriched.kana ||
-        !enriched.meaning ||
-        !enriched.usage
+        !enriched.meaning
       )
         throw new Error(enriched.error || '没有查到完整词条');
       const existing = vocabulary.find((entry) => entry.word === enriched.word);
@@ -798,7 +814,7 @@ export default function Home() {
         word: enriched.word,
         kana: enriched.kana,
         meaning: enriched.meaning,
-        usage: enriched.usage,
+        usage: enriched.usage || '',
         sourceContext: vocabularyDraft.sourceContext,
         updatedAt: new Date().toISOString(),
       };
@@ -2397,7 +2413,7 @@ function ExamQuestionCard({
   );
 }
 
-/** 单词本页面：集中展示词形、读音、释义、用法和原题语境。 */
+/** 单词本页面：按照序号、单词、读音和中文意思统一展示。 */
 function VocabularyBook({
   entries,
   onAdd,
@@ -2409,7 +2425,7 @@ function VocabularyBook({
 }) {
   const [query, setQuery] = useState('');
   const filtered = entries.filter((entry) =>
-    `${entry.word} ${entry.kana} ${entry.meaning} ${entry.usage}`
+    `${entry.word} ${entry.kana} ${entry.meaning}`
       .toLowerCase()
       .includes(query.trim().toLowerCase()),
   );
@@ -2430,7 +2446,7 @@ function VocabularyBook({
           className="vocabulary-search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索日文、假名、中文或使用场景"
+          placeholder="搜索单词、读音或中文意思"
           aria-label="搜索单词本"
         />
       )}
@@ -2442,39 +2458,40 @@ function VocabularyBook({
       ) : filtered.length === 0 ? (
         <Empty text="没有找到相关单词" sub="换一个关键词试试。" />
       ) : (
-        <div className="vocabulary-grid">
-          {filtered.map((entry) => (
-            <article className="vocabulary-card" key={entry.id}>
-              <div className="vocabulary-card-head">
-                <div>
-                  <h2>{entry.word}</h2>
-                  <p>{entry.kana}</p>
-                </div>
-                <button
-                  className="vocabulary-delete"
-                  onClick={() => {
-                    if (confirm(`确定从单词本删除「${entry.word}」吗？`))
-                      onDelete(entry.id);
-                  }}
-                  aria-label={`删除 ${entry.word}`}
-                  title="删除这个词"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-              <div className="vocabulary-meaning">{entry.meaning}</div>
-              <section>
-                <b>使用细节与场景</b>
-                <p>{entry.usage}</p>
-              </section>
-              {entry.sourceContext && (
-                <details>
-                  <summary>查看收录时的题目语境</summary>
-                  <p>{entry.sourceContext}</p>
-                </details>
-              )}
-            </article>
-          ))}
+        <div className="vocabulary-table-wrap">
+          <table className="vocabulary-table">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">单词</th>
+                <th scope="col">读音</th>
+                <th scope="col">中文意思</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((entry, index) => (
+                <tr key={entry.id}>
+                  <td data-label="#">{index + 1}</td>
+                  <td data-label="单词" className="vocabulary-word">{entry.word}</td>
+                  <td data-label="读音">{entry.kana}</td>
+                  <td data-label="中文意思" className="vocabulary-meaning-cell">
+                    <span>{entry.meaning}</span>
+                    <button
+                      className="vocabulary-delete"
+                      onClick={() => {
+                        if (confirm(`确定从单词本删除「${entry.word}」吗？`))
+                          onDelete(entry.id);
+                      }}
+                      aria-label={`删除 ${entry.word}`}
+                      title="删除这个词"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
