@@ -24,7 +24,6 @@ import {
   Square,
   Sun,
   Target,
-  TimerReset,
   Trophy,
   TrendingUp,
   Trash2,
@@ -39,7 +38,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import officialQuestions202512 from '@/lib/questions-2025-12.json';
 import originalWrongQuestions from '@/lib/imported-wrongs.json';
 
@@ -259,7 +257,6 @@ const nav = [
   [BookMarked, '单词本'],
   [Trophy, '分数模拟'],
   [TrendingUp, '学习数据'],
-  [TimerReset, '全真模拟'],
   [MessageCircle, 'AI 助手'],
 ] as const;
 
@@ -556,6 +553,8 @@ export default function Home() {
   const [account, setAccount] = useState<AccountState | null>(null);
   const [vocabulary, setVocabulary] = useState<VocabularyEntry[]>([]);
   const [vocabularyDialogOpen, setVocabularyDialogOpen] = useState(false);
+  const [vocabularySaving, setVocabularySaving] = useState(false);
+  const [vocabularyError, setVocabularyError] = useState('');
   const [vocabularyDraft, setVocabularyDraft] = useState({
     word: '',
     kana: '',
@@ -765,43 +764,56 @@ export default function Home() {
       sourceContext,
     });
     setSelectionAction(null);
+    setVocabularyError('');
+    setVocabularySaving(false);
     setVocabularyDialogOpen(true);
   };
-  /** 保存完整词条，同一个日文词再次保存时更新原词条而不重复创建。 */
+  /** 自动查询读音、中文释义和用法，再保存完整词条。 */
   const addVocabulary = async () => {
-    if (
-      !deviceId ||
-      !vocabularyDraft.word.trim() ||
-      !vocabularyDraft.kana.trim() ||
-      !vocabularyDraft.meaning.trim() ||
-      !vocabularyDraft.usage.trim()
-    )
-      return;
-    const existing = vocabulary.find(
-      (entry) => entry.word === vocabularyDraft.word.trim(),
-    );
-    const provisional: VocabularyEntry = {
-      id: existing?.id || crypto.randomUUID(),
-      ...vocabularyDraft,
-      word: vocabularyDraft.word.trim(),
-      kana: vocabularyDraft.kana.trim(),
-      meaning: vocabularyDraft.meaning.trim(),
-      usage: vocabularyDraft.usage.trim(),
-      updatedAt: new Date().toISOString(),
-    };
+    const requestedWord = vocabularyDraft.word.trim();
+    if (!deviceId || !requestedWord || vocabularySaving) return;
+    setVocabularySaving(true);
+    setVocabularyError('');
     try {
+      const enrichResponse = await fetch('/api/vocabulary/enrich', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ word: requestedWord }),
+      });
+      const enriched =
+        (await enrichResponse.json()) as Partial<VocabularyEntry> & {
+          error?: string;
+        };
+      if (
+        !enrichResponse.ok ||
+        !enriched.word ||
+        !enriched.kana ||
+        !enriched.meaning ||
+        !enriched.usage
+      )
+        throw new Error(enriched.error || '没有查到完整词条');
+      const existing = vocabulary.find((entry) => entry.word === enriched.word);
+      const provisional: VocabularyEntry = {
+        id: existing?.id || crypto.randomUUID(),
+        word: enriched.word,
+        kana: enriched.kana,
+        meaning: enriched.meaning,
+        usage: enriched.usage,
+        sourceContext: vocabularyDraft.sourceContext,
+        updatedAt: new Date().toISOString(),
+      };
       const saved = await saveVocabularyEntry(deviceId, provisional);
       setVocabulary((current) => [
         saved,
         ...current.filter((entry) => entry.word !== saved.word),
       ]);
       setVocabularyDialogOpen(false);
-    } catch {
-      setVocabulary((current) => [
-        provisional,
-        ...current.filter((entry) => entry.word !== provisional.word),
-      ]);
-      setVocabularyDialogOpen(false);
+    } catch (error) {
+      setVocabularyError(
+        error instanceof Error ? error.message : '自动查询失败，请重试',
+      );
+    } finally {
+      setVocabularySaving(false);
     }
   };
   /** 删除指定词条；数据库暂时离线时也先从本地列表移除。 */
@@ -1043,14 +1055,6 @@ export default function Home() {
         {active === '学习数据' && (
           <Data stats={stats} attempts={attempts} wrongs={wrongs} />
         )}
-        {active === '全真模拟' && (
-          <Quiz
-            mode="mock"
-            attempts={attempts}
-            onSubmit={submit}
-            deviceId={deviceId}
-          />
-        )}
         {active === 'AI 助手' && (
           <StudyAssistant attempts={attempts} wrongs={wrongs} />
         )}
@@ -1075,7 +1079,7 @@ export default function Home() {
           <DialogHeader>
             <DialogTitle>收录单词</DialogTitle>
             <DialogDescription>
-              请补全读音、含义与使用场景，保存后可在“单词本”中复习。
+              只需输入日文汉字或假名，系统会自动补全其余资料。
             </DialogDescription>
           </DialogHeader>
           <div className="vocabulary-form">
@@ -1090,80 +1094,38 @@ export default function Home() {
                   }))
                 }
                 placeholder="例：見落とす"
-              />
-            </label>
-            <label>
-              <span>假名</span>
-              <Input
-                value={vocabularyDraft.kana}
-                onChange={(event) =>
-                  setVocabularyDraft((draft) => ({
-                    ...draft,
-                    kana: event.target.value,
-                  }))
-                }
-                placeholder="例：みおとす"
-              />
-            </label>
-            <label>
-              <span>中文意思</span>
-              <Input
-                value={vocabularyDraft.meaning}
-                onChange={(event) =>
-                  setVocabularyDraft((draft) => ({
-                    ...draft,
-                    meaning: event.target.value,
-                  }))
-                }
-                placeholder="例：看漏、忽略"
-              />
-            </label>
-            <label>
-              <span>使用细节与场景</span>
-              <Textarea
-                value={vocabularyDraft.usage}
-                onChange={(event) =>
-                  setVocabularyDraft((draft) => ({
-                    ...draft,
-                    usage: event.target.value,
-                  }))
-                }
-                placeholder="写明搭配、语气、适用场景或容易混淆的表达"
+                disabled={vocabularySaving}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void addVocabulary();
+                }}
               />
             </label>
             {vocabularyDraft.sourceContext && (
-              <label>
-                <span>题目出处</span>
-                <Textarea
-                  value={vocabularyDraft.sourceContext}
-                  onChange={(event) =>
-                    setVocabularyDraft((draft) => ({
-                      ...draft,
-                      sourceContext: event.target.value,
-                    }))
-                  }
-                />
-              </label>
+              <p className="vocabulary-source-preview">
+                <b>将同时保留题目语境：</b>
+                {vocabularyDraft.sourceContext}
+              </p>
+            )}
+            {vocabularyError && (
+              <p className="vocabulary-error" role="alert">
+                {vocabularyError}
+              </p>
             )}
           </div>
           <DialogFooter>
             <button
               className="ghost vocabulary-cancel"
               onClick={() => setVocabularyDialogOpen(false)}
+              disabled={vocabularySaving}
             >
               取消
             </button>
             <button
               className="solid"
-              disabled={
-                !vocabularyDraft.word.trim() ||
-                !vocabularyDraft.kana.trim() ||
-                !vocabularyDraft.meaning.trim() ||
-                !vocabularyDraft.usage.trim()
-              }
+              disabled={!vocabularyDraft.word.trim() || vocabularySaving}
               onClick={addVocabulary}
             >
-              保存到单词本
+              {vocabularySaving ? '正在自动查询…' : '自动补全并保存'}
             </button>
           </DialogFooter>
         </DialogContent>
