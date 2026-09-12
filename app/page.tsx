@@ -451,6 +451,29 @@ const optionLayoutClass = (question: Question) => {
   return 'compact-options';
 };
 
+/**
+ * 共用同一篇文章或听力原文的连续小题，只在第一次出现时展示材料。
+ * 压缩空白后再比较，避免 PDF 换行差异造成看似相同的文章被重复显示。
+ */
+const sharedMaterialKey = (question: Question) => {
+  const material =
+    question.module === '聴解'
+      ? question.transcript || question.context
+      : question.context;
+  return material
+    ? `${question.module}:${material.replace(/\s+/g, ' ').trim()}`
+    : '';
+};
+
+const shouldShowSharedMaterial = (paper: Question[], questionIndex: number) => {
+  const key = sharedMaterialKey(paper[questionIndex]);
+  if (!key) return true;
+  return (
+    paper.findIndex((question) => sharedMaterialKey(question) === key) ===
+    questionIndex
+  );
+};
+
 /** 把当前设备的错题分批保存到站点数据库，避免一次发送过多数据。 */
 async function saveWrongs(deviceId: string, wrongs: Wrong[]) {
   const items = wrongs.flatMap((wrong) => {
@@ -1907,6 +1930,10 @@ function PastExamTraining({
               ordinal={questionIndex + 1}
               chosen={answers[question.id]}
               showAnswer={submitted}
+              showSharedMaterial={shouldShowSharedMaterial(
+                paper,
+                questionIndex,
+              )}
               onChoose={(choice) =>
                 !submitted &&
                 setAnswers((currentAnswers) => ({
@@ -1963,6 +1990,10 @@ function PastExamTraining({
               ordinal={questionIndex + 1}
               chosen={answers[question.id]}
               showAnswer={submitted}
+              showSharedMaterial={shouldShowSharedMaterial(
+                paper,
+                questionIndex,
+              )}
               onChoose={(choice) =>
                 !submitted &&
                 setAnswers((currentAnswers) => ({
@@ -2055,6 +2086,7 @@ function ExamQuestionCard({
   ordinal,
   chosen,
   showAnswer,
+  showSharedMaterial = true,
   onChoose,
   children,
 }: {
@@ -2062,6 +2094,7 @@ function ExamQuestionCard({
   ordinal?: number;
   chosen?: number;
   showAnswer: boolean;
+  showSharedMaterial?: boolean;
   onChoose: (choice: number) => void;
   children?: React.ReactNode;
 }) {
@@ -2072,10 +2105,10 @@ function ExamQuestionCard({
         <b>{question.type}</b>
         <em>{originalQuestionLabel(question) || `第 ${ordinal} 题`}</em>
       </div>
-      {question.context && question.module !== '聴解' && (
+      {showSharedMaterial && question.context && question.module !== '聴解' && (
         <div className="passage">{question.context}</div>
       )}
-      {question.module === '聴解' && (
+      {showSharedMaterial && question.module === '聴解' && (
         <ExamListeningPlayer question={question} />
       )}
       <h2>{markedPrompt(question)}</h2>
