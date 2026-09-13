@@ -53,7 +53,7 @@ export async function POST(request: Request) {
       db()
         .prepare(`INSERT OR IGNORE INTO learning_sessions
         (id, device_id, mode, total_questions, correct_questions, elapsed_seconds, completed_at)
-        SELECT id, ?, mode, total_questions, correct_questions, elapsed_seconds, completed_at
+        SELECT lower(hex(randomblob(16))), ?, mode, total_questions, correct_questions, elapsed_seconds, completed_at
         FROM learning_sessions WHERE device_id = ?`)
         .bind(target, source),
       db()
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       db()
         .prepare(`INSERT INTO vocabulary_entries
         (id, device_id, word, kana, meaning, usage, source_context, created_at, updated_at)
-        SELECT id, ?, word, kana, meaning, usage, source_context, created_at, updated_at
+        SELECT lower(hex(randomblob(16))), ?, word, kana, meaning, usage, source_context, created_at, updated_at
         FROM vocabulary_entries WHERE device_id = ?
         ON CONFLICT(device_id, word) DO UPDATE SET kana=excluded.kana,
         meaning=excluded.meaning, usage=excluded.usage, source_context=excluded.source_context,
