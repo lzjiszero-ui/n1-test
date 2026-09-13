@@ -2172,6 +2172,17 @@ button {
   gap: 8px;
 }
 .vocabulary-title-actions { flex-wrap: wrap; justify-content: flex-end; }
+.vocabulary-dedupe-notice {
+  display: inline-flex;
+  margin: 14px 0 0;
+  padding: 8px 11px;
+  border: 1px solid #a9cfbd;
+  border-radius: 8px;
+  background: #edf7f2;
+  color: #27664f;
+  font-size: 14px;
+  font-weight: 700;
+}
 .vocabulary-search {
   max-width: 520px;
   height: 44px;
@@ -2890,6 +2901,11 @@ button {
 :root[data-theme='dark'] .vocabulary-edit:hover {
   background: #253c32;
   border-color: #4c876e;
+}
+:root[data-theme='dark'] .vocabulary-dedupe-notice {
+  border-color: #46725f;
+  background: #1d382c;
+  color: #bdebd5;
 }
 :root[data-theme='dark'] .vocabulary-meaning {
   background: #223a30;

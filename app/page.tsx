@@ -545,6 +545,26 @@ const normalizeVocabularyEntry = (entry: VocabularyEntry): VocabularyEntry => ({
 
 type VocabularyImportRow = { word: string; kana?: string; meaning?: string };
 
+/** 统一全角、半角和误输入的空格，用于判断两个词是否为同一词。 */
+const vocabularyWordKey = (value: string) =>
+  value.normalize('NFKC').replace(/\s+/g, '');
+
+/** 保留最早出现的一条，返回需要删除的历史重复记录。 */
+const dedupeVocabularyEntries = (entries: VocabularyEntry[]) => {
+  const unique: VocabularyEntry[] = [];
+  const duplicateIds: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    const key = vocabularyWordKey(entry.word);
+    if (seen.has(key)) duplicateIds.push(entry.id);
+    else {
+      seen.add(key);
+      unique.push(entry);
+    }
+  }
+  return { unique, duplicateIds };
+};
+
 /** 解析 Markdown 表格、制表符、逗号或逐行单词，忽略表头和分隔线。 */
 const parseVocabularyImport = (text: string): VocabularyImportRow[] => {
   const rows: VocabularyImportRow[] = [];
@@ -563,9 +583,10 @@ const parseVocabularyImport = (text: string): VocabularyImportRow[] => {
       continue;
     if (/^\d+$/.test(cells[0] || '')) cells = cells.slice(1);
     const [word, kana, ...meaningParts] = cells;
-    if (!word || seen.has(word) || !/[ぁ-んァ-ヶ一-龠々ー]/.test(word))
+    const key = vocabularyWordKey(word || '');
+    if (!word || seen.has(key) || !/[ぁ-んァ-ヶ一-龠々ー]/.test(word))
       continue;
-    seen.add(word);
+    seen.add(key);
     rows.push({ word, kana, meaning: meaningParts.join('；') || undefined });
   }
   return rows;
@@ -731,7 +752,10 @@ export default function Home() {
               merged.set(saved.word, saved);
             }
           }
-          setVocabulary([...merged.values()]);
+          const deduped = dedupeVocabularyEntries([...merged.values()]);
+          setVocabulary(deduped.unique);
+          for (const duplicateId of deduped.duplicateIds)
+            await fetch(`/api/vocabulary?deviceId=${encodeURIComponent(id)}&id=${encodeURIComponent(duplicateId)}`, { method: 'DELETE' });
         } else setVocabulary(localVocabulary);
         setDbReady(true);
       } catch {
@@ -842,10 +866,13 @@ export default function Home() {
         !enriched.meaning
       )
         throw new Error(enriched.error || '没有查到完整词条');
-      const existing = vocabulary.find((entry) => entry.word === enriched.word);
+      const enrichedKey = vocabularyWordKey(enriched.word);
+      const existing = vocabulary.find(
+        (entry) => vocabularyWordKey(entry.word) === enrichedKey,
+      );
       const provisional: VocabularyEntry = {
         id: existing?.id || crypto.randomUUID(),
-        word: enriched.word,
+        word: existing?.word || enriched.word,
         kana: enriched.kana,
         meaning: enriched.meaning,
         usage: enriched.usage || '',
@@ -854,7 +881,10 @@ export default function Home() {
       };
       const saved = await saveVocabularyEntry(deviceId, provisional);
       setVocabulary((current) => {
-        const index = current.findIndex((entry) => entry.word === saved.word);
+        const savedKey = vocabularyWordKey(saved.word);
+        const index = current.findIndex(
+          (entry) => vocabularyWordKey(entry.word) === savedKey,
+        );
         if (index < 0) return [...current, saved];
         return current.map((entry, position) => position === index ? saved : entry);
       });
@@ -902,10 +932,13 @@ export default function Home() {
           kana ||= enriched.kana;
           meaning ||= enriched.meaning;
         }
-        const existingIndex = next.findIndex((entry) => entry.word === row.word);
+        const rowKey = vocabularyWordKey(row.word);
+        const existingIndex = next.findIndex(
+          (entry) => vocabularyWordKey(entry.word) === rowKey,
+        );
         const saved = await saveVocabularyEntry(deviceId, {
           id: existingIndex >= 0 ? next[existingIndex].id : crypto.randomUUID(),
-          word: row.word,
+          word: existingIndex >= 0 ? next[existingIndex].word : row.word.trim(),
           kana,
           meaning,
           usage: existingIndex >= 0 ? next[existingIndex].usage || '' : '',
@@ -932,6 +965,21 @@ export default function Home() {
         `/api/vocabulary?deviceId=${encodeURIComponent(deviceId)}&id=${encodeURIComponent(id)}`,
         { method: 'DELETE' },
       );
+  };
+  /** 清理旧数据中的重复词条；保留序号更靠前的记录。 */
+  const deduplicateVocabulary = async () => {
+    const { unique, duplicateIds } = dedupeVocabularyEntries(vocabulary);
+    if (!duplicateIds.length) return 0;
+    setVocabulary(unique);
+    await Promise.all(
+      duplicateIds.map((id) =>
+        fetch(
+          `/api/vocabulary?deviceId=${encodeURIComponent(deviceId)}&id=${encodeURIComponent(id)}`,
+          { method: 'DELETE' },
+        ),
+      ),
+    );
+    return duplicateIds.length;
   };
   // 根据所有作答记录整理首页、分数模拟和学习数据页共用的统计结果。
   const stats = useMemo(() => {
@@ -1159,6 +1207,7 @@ export default function Home() {
               setVocabularyImportOpen(true);
             }}
             onUpdate={updateVocabulary}
+            onDedupe={deduplicateVocabulary}
             onDelete={deleteVocabulary}
           />
         )}{' '}
@@ -2548,18 +2597,22 @@ function VocabularyBook({
   onAdd,
   onImport,
   onUpdate,
+  onDedupe,
   onDelete,
 }: {
   entries: VocabularyEntry[];
   onAdd: () => void;
   onImport: () => void;
   onUpdate: (entry: VocabularyEntry) => Promise<void>;
+  onDedupe: () => Promise<number>;
   onDelete: (id: string) => void;
 }) {
   const [query, setQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState({ kana: '', meaning: '' });
   const [editingSaving, setEditingSaving] = useState(false);
+  const [dedupeWorking, setDedupeWorking] = useState(false);
+  const [dedupeNotice, setDedupeNotice] = useState('');
   const filtered = entries.filter((entry) =>
     `${entry.word} ${entry.kana} ${entry.meaning}`
       .toLowerCase()
@@ -2574,6 +2627,16 @@ function VocabularyBook({
           <p>可手动添加，也可在题目中选中日文后直接收录。</p>
         </div>
         <div className="vocabulary-title-actions">
+          <button className="ghost" disabled={dedupeWorking || entries.length < 2} onClick={async () => {
+            setDedupeWorking(true);
+            try {
+              const count = await onDedupe();
+              setDedupeNotice(count ? `已清理 ${count} 条重复记录` : '没有发现重复单词');
+              window.setTimeout(() => setDedupeNotice(''), 2600);
+            } finally { setDedupeWorking(false); }
+          }}>
+            <Check size={17} /> {dedupeWorking ? '正在整理…' : '整理重复项'}
+          </button>
           <button className="ghost" onClick={onImport}>
             <BookOpen size={17} /> 批量导入
           </button>
@@ -2582,6 +2645,7 @@ function VocabularyBook({
           </button>
         </div>
       </div>
+      {dedupeNotice && <p className="vocabulary-dedupe-notice" role="status">{dedupeNotice}</p>}
       {entries.length > 0 && (
         <Input
           className="vocabulary-search"
