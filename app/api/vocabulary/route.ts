@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const result = await db()
     .prepare(`SELECT id, word, kana, meaning, usage,
     source_context AS sourceContext, created_at AS createdAt, updated_at AS updatedAt
-    FROM vocabulary_entries WHERE device_id = ? ORDER BY updated_at DESC`)
+    FROM vocabulary_entries WHERE device_id = ? ORDER BY created_at ASC, rowid ASC`)
     .bind(owner)
     .all();
   return Response.json(result.results);

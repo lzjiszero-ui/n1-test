@@ -16,10 +16,12 @@ import {
   LogOut,
   MessageCircle,
   NotebookPen,
+  Pencil,
   Printer,
   Play,
   Plus,
   RotateCcw,
+  Save,
   Moon,
   Square,
   Sun,
@@ -28,6 +30,7 @@ import {
   TrendingUp,
   Trash2,
   Volume2,
+  X,
 } from 'lucide-react';
 import {
   Dialog,
@@ -540,6 +543,34 @@ const normalizeVocabularyEntry = (entry: VocabularyEntry): VocabularyEntry => ({
   meaning: vocabularyMeaningCorrections[entry.word] || entry.meaning,
 });
 
+type VocabularyImportRow = { word: string; kana?: string; meaning?: string };
+
+/** 解析 Markdown 表格、制表符、逗号或逐行单词，忽略表头和分隔线。 */
+const parseVocabularyImport = (text: string): VocabularyImportRow[] => {
+  const rows: VocabularyImportRow[] = [];
+  const seen = new Set<string>();
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/^[“"]|[”"]$/g, '');
+    if (!line || /^\|?\s*:?-{3,}/.test(line)) continue;
+    let cells = line.includes('|')
+      ? line.split('|').map((item) => item.trim()).filter(Boolean)
+      : line.includes('\t')
+        ? line.split('\t').map((item) => item.trim())
+        : line.includes(',') || line.includes('，')
+          ? line.split(/[,，]/).map((item) => item.trim())
+          : [line];
+    if (cells.some((item) => /^(#|序号|单词|读音|假名|中文意思)$/.test(item)))
+      continue;
+    if (/^\d+$/.test(cells[0] || '')) cells = cells.slice(1);
+    const [word, kana, ...meaningParts] = cells;
+    if (!word || seen.has(word) || !/[ぁ-んァ-ヶ一-龠々ー]/.test(word))
+      continue;
+    seen.add(word);
+    rows.push({ word, kana, meaning: meaningParts.join('；') || undefined });
+  }
+  return rows;
+};
+
 /** 恢复用户原始导入的错题，不改动已有的复习记录。 */
 const importedWrongs = (): Wrong[] =>
   originalWrongQuestionBank.map((question) => ({
@@ -562,8 +593,11 @@ export default function Home() {
   const [account, setAccount] = useState<AccountState | null>(null);
   const [vocabulary, setVocabulary] = useState<VocabularyEntry[]>([]);
   const [vocabularyDialogOpen, setVocabularyDialogOpen] = useState(false);
+  const [vocabularyImportOpen, setVocabularyImportOpen] = useState(false);
   const [vocabularySaving, setVocabularySaving] = useState(false);
   const [vocabularyError, setVocabularyError] = useState('');
+  const [vocabularyImportText, setVocabularyImportText] = useState('');
+  const [vocabularyImportError, setVocabularyImportError] = useState('');
   const [vocabularyDraft, setVocabularyDraft] = useState({
     word: '',
     kana: '',
@@ -819,15 +853,73 @@ export default function Home() {
         updatedAt: new Date().toISOString(),
       };
       const saved = await saveVocabularyEntry(deviceId, provisional);
-      setVocabulary((current) => [
-        saved,
-        ...current.filter((entry) => entry.word !== saved.word),
-      ]);
+      setVocabulary((current) => {
+        const index = current.findIndex((entry) => entry.word === saved.word);
+        if (index < 0) return [...current, saved];
+        return current.map((entry, position) => position === index ? saved : entry);
+      });
       setVocabularyDialogOpen(false);
     } catch (error) {
       setVocabularyError(
         error instanceof Error ? error.message : '自动查询失败，请重试',
       );
+    } finally {
+      setVocabularySaving(false);
+    }
+  };
+  /** 保存用户手动修改的读音或中文意思，并保持该词原来的序号。 */
+  const updateVocabulary = async (entry: VocabularyEntry) => {
+    if (!deviceId) throw new Error('数据尚未加载完成');
+    const saved = await saveVocabularyEntry(deviceId, entry);
+    setVocabulary((current) =>
+      current.map((item) => item.id === entry.id ? saved : item),
+    );
+  };
+  /** 批量导入完整表格；只有单词时，逐条自动补全读音和中文意思。 */
+  const importVocabulary = async () => {
+    const rows = parseVocabularyImport(vocabularyImportText);
+    if (!deviceId || vocabularySaving) return;
+    if (!rows.length) {
+      setVocabularyImportError('没有识别到可导入的日文单词');
+      return;
+    }
+    setVocabularySaving(true);
+    setVocabularyImportError('');
+    try {
+      const next = [...vocabulary];
+      for (const row of rows) {
+        let kana = row.kana?.trim() || '';
+        let meaning = row.meaning?.trim() || '';
+        if (!kana || !meaning) {
+          const response = await fetch('/api/vocabulary/enrich', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ word: row.word }),
+          });
+          const enriched = (await response.json()) as Partial<VocabularyEntry> & { error?: string };
+          if (!response.ok || !enriched.kana || !enriched.meaning)
+            throw new Error(`「${row.word}」${enriched.error || '无法自动补全'}`);
+          kana ||= enriched.kana;
+          meaning ||= enriched.meaning;
+        }
+        const existingIndex = next.findIndex((entry) => entry.word === row.word);
+        const saved = await saveVocabularyEntry(deviceId, {
+          id: existingIndex >= 0 ? next[existingIndex].id : crypto.randomUUID(),
+          word: row.word,
+          kana,
+          meaning,
+          usage: existingIndex >= 0 ? next[existingIndex].usage || '' : '',
+          sourceContext: existingIndex >= 0 ? next[existingIndex].sourceContext : '',
+          updatedAt: new Date().toISOString(),
+        });
+        if (existingIndex >= 0) next[existingIndex] = saved;
+        else next.push(saved);
+      }
+      setVocabulary(next);
+      setVocabularyImportText('');
+      setVocabularyImportOpen(false);
+    } catch (error) {
+      setVocabularyImportError(error instanceof Error ? error.message : '批量导入失败');
     } finally {
       setVocabularySaving(false);
     }
@@ -1062,6 +1154,11 @@ export default function Home() {
           <VocabularyBook
             entries={vocabulary}
             onAdd={() => openVocabularyDialog()}
+            onImport={() => {
+              setVocabularyImportError('');
+              setVocabularyImportOpen(true);
+            }}
+            onUpdate={updateVocabulary}
             onDelete={deleteVocabulary}
           />
         )}{' '}
@@ -1142,6 +1239,38 @@ export default function Home() {
               onClick={addVocabulary}
             >
               {vocabularySaving ? '正在自动查询…' : '自动补全并保存'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={vocabularyImportOpen} onOpenChange={setVocabularyImportOpen}>
+        <DialogContent className="vocabulary-dialog">
+          <DialogHeader>
+            <DialogTitle>批量导入单词</DialogTitle>
+            <DialogDescription>
+              可粘贴 Markdown 表格、Excel 三列内容，或每行一个单词。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="vocabulary-form">
+            <label>
+              <span>单词内容</span>
+              <textarea
+                value={vocabularyImportText}
+                onChange={(event) => setVocabularyImportText(event.target.value)}
+                placeholder={'大抵\tたいてい\t大抵；大多；通常\n挫折\tざせつ\t挫折；受挫'}
+                disabled={vocabularySaving}
+                rows={9}
+              />
+            </label>
+            <p className="vocabulary-import-tip">
+              已提供读音和中文意思时直接导入；每行只有单词时由系统自动查询。
+            </p>
+            {vocabularyImportError && <p className="vocabulary-error" role="alert">{vocabularyImportError}</p>}
+          </div>
+          <DialogFooter>
+            <button className="ghost vocabulary-cancel" onClick={() => setVocabularyImportOpen(false)} disabled={vocabularySaving}>取消</button>
+            <button className="solid" onClick={importVocabulary} disabled={!vocabularyImportText.trim() || vocabularySaving}>
+              {vocabularySaving ? '正在导入…' : '开始导入'}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -2417,13 +2546,20 @@ function ExamQuestionCard({
 function VocabularyBook({
   entries,
   onAdd,
+  onImport,
+  onUpdate,
   onDelete,
 }: {
   entries: VocabularyEntry[];
   onAdd: () => void;
+  onImport: () => void;
+  onUpdate: (entry: VocabularyEntry) => Promise<void>;
   onDelete: (id: string) => void;
 }) {
   const [query, setQuery] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState({ kana: '', meaning: '' });
+  const [editingSaving, setEditingSaving] = useState(false);
   const filtered = entries.filter((entry) =>
     `${entry.word} ${entry.kana} ${entry.meaning}`
       .toLowerCase()
@@ -2437,9 +2573,14 @@ function VocabularyBook({
           <h1>单词本</h1>
           <p>可手动添加，也可在题目中选中日文后直接收录。</p>
         </div>
-        <button className="solid" onClick={onAdd}>
-          <Plus size={17} /> 手动添加
-        </button>
+        <div className="vocabulary-title-actions">
+          <button className="ghost" onClick={onImport}>
+            <BookOpen size={17} /> 批量导入
+          </button>
+          <button className="solid" onClick={onAdd}>
+            <Plus size={17} /> 手动添加
+          </button>
+        </div>
       </div>
       {entries.length > 0 && (
         <Input
@@ -2473,20 +2614,36 @@ function VocabularyBook({
                 <tr key={entry.id}>
                   <td data-label="#">{index + 1}</td>
                   <td data-label="单词" className="vocabulary-word">{entry.word}</td>
-                  <td data-label="读音">{entry.kana}</td>
-                  <td data-label="中文意思" className="vocabulary-meaning-cell">
-                    <span>{entry.meaning}</span>
-                    <button
-                      className="vocabulary-delete"
-                      onClick={() => {
-                        if (confirm(`确定从单词本删除「${entry.word}」吗？`))
-                          onDelete(entry.id);
-                      }}
-                      aria-label={`删除 ${entry.word}`}
-                      title="删除这个词"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                  <td data-label="读音">
+                    {editingId === entry.id ? (
+                      <Input value={editDraft.kana} onChange={(event) => setEditDraft((draft) => ({ ...draft, kana: event.target.value }))} aria-label={`${entry.word}的读音`} />
+                    ) : entry.kana}
+                  </td>
+                  <td data-label="中文意思">
+                    <div className="vocabulary-meaning-cell">
+                      {editingId === entry.id ? (
+                        <Input value={editDraft.meaning} onChange={(event) => setEditDraft((draft) => ({ ...draft, meaning: event.target.value }))} aria-label={`${entry.word}的中文意思`} />
+                      ) : <span>{entry.meaning}</span>}
+                      <span className="vocabulary-row-actions">
+                      {editingId === entry.id ? (
+                        <>
+                          <button className="vocabulary-edit" disabled={editingSaving || !editDraft.kana.trim() || !editDraft.meaning.trim()} onClick={async () => {
+                            setEditingSaving(true);
+                            try {
+                              await onUpdate({ ...entry, kana: editDraft.kana.trim(), meaning: editDraft.meaning.trim(), updatedAt: new Date().toISOString() });
+                              setEditingId(null);
+                            } catch {
+                              window.alert('保存失败，请稍后重试');
+                            } finally { setEditingSaving(false); }
+                          }} aria-label={`保存 ${entry.word}`} title="保存修改"><Save size={16} /></button>
+                          <button className="vocabulary-edit" onClick={() => setEditingId(null)} aria-label="取消编辑" title="取消编辑"><X size={16} /></button>
+                        </>
+                      ) : (
+                        <button className="vocabulary-edit" onClick={() => { setEditingId(entry.id); setEditDraft({ kana: entry.kana, meaning: entry.meaning }); }} aria-label={`编辑 ${entry.word}`} title="编辑读音和中文意思"><Pencil size={16} /></button>
+                      )}
+                      <button className="vocabulary-delete" onClick={() => { if (confirm(`确定从单词本删除「${entry.word}」吗？`)) onDelete(entry.id); }} aria-label={`删除 ${entry.word}`} title="删除这个词"><Trash2 size={16} /></button>
+                      </span>
+                    </div>
                   </td>
                 </tr>
               ))}
