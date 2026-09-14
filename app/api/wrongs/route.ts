@@ -22,7 +22,8 @@ export async function GET(request: Request) {
     return Response.json({ error: 'deviceId is required' }, { status: 400 });
   const result = await db()
     .prepare(`SELECT question_id AS id, chosen, reason, mastered, next_review AS nextReview,
-      review_stage AS reviewStage, review_count AS reviewCount, last_reviewed_at AS lastReviewedAt
+      review_stage AS reviewStage, review_count AS reviewCount, last_reviewed_at AS lastReviewedAt,
+      updated_at AS updatedAt
       FROM wrong_answers WHERE device_id = ? ORDER BY mastered ASC, updated_at DESC`)
     .bind(deviceId)
     .all();
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
       reviewStage?: number;
       reviewCount?: number;
       lastReviewedAt?: string;
+      updatedAt?: string;
     }>;
   };
   const deviceId = await ownerKey(body.deviceId || null);
@@ -62,7 +64,8 @@ export async function POST(request: Request) {
           next_review=excluded.next_review, module=excluded.module,
           question_type=excluded.question_type, review_stage=excluded.review_stage,
           review_count=excluded.review_count, last_reviewed_at=excluded.last_reviewed_at,
-          updated_at=excluded.updated_at`)
+          updated_at=excluded.updated_at
+          WHERE excluded.updated_at >= wrong_answers.updated_at`)
           .bind(
             deviceId,
             item.id,
@@ -76,7 +79,7 @@ export async function POST(request: Request) {
             item.reviewCount || 0,
             item.lastReviewedAt || null,
             now,
-            now,
+            item.updatedAt || now,
           ),
       ),
     );

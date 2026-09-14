@@ -77,6 +77,7 @@ type Wrong = {
   reviewStage?: number;
   reviewCount?: number;
   lastReviewedAt?: string;
+  updatedAt?: string;
 };
 type Attempt = {
   id: number;
@@ -787,6 +788,48 @@ export default function Home() {
   useEffect(() => {
     if (dbReady && deviceId) void saveWrongs(deviceId, wrongs);
   }, [wrongs, deviceId, dbReady]);
+  /**
+   * 登录后定期读取账号中的最新错题状态。
+   * 这样手机或电脑修改“已掌握”后，另一台已打开的设备无需刷新也会同步。
+   */
+  useEffect(() => {
+    if (!account?.signedIn || !dbReady || !deviceId) return;
+    let stopped = false;
+    const refreshWrongs = async () => {
+      if (document.hidden) return;
+      try {
+        const response = await fetch(
+          `/api/wrongs?deviceId=${encodeURIComponent(deviceId)}`,
+          { cache: 'no-store' },
+        );
+        if (!response.ok || stopped) return;
+        const cloudWrongs = (await response.json()) as Wrong[];
+        if (stopped) return;
+        setWrongs((current) => {
+          const currentById = new Map(current.map((wrong) => [wrong.id, wrong]));
+          let changed = current.length !== cloudWrongs.length;
+          const merged = cloudWrongs.map((cloud) => {
+            const local = currentById.get(cloud.id);
+            if (!local || local.updatedAt !== cloud.updatedAt) changed = true;
+            return cloud;
+          });
+          return changed ? merged : current;
+        });
+      } catch {
+        // 临时断网时保留页面数据，下一次轮询会自动重试。
+      }
+    };
+    const timer = window.setInterval(() => void refreshWrongs(), 5000);
+    const onFocus = () => void refreshWrongs();
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [account?.signedIn, dbReady, deviceId]);
   /** 在题目区域选中日文后，显示一个靠近选区的“加入单词本”按钮。 */
   useEffect(() => {
     const captureSelection = () => {
@@ -1025,6 +1068,7 @@ export default function Home() {
           nextReview: later(1),
           reviewStage: 0,
           reviewCount: 0,
+          updatedAt: new Date().toISOString(),
         },
       ]);
     else if (existing) {
@@ -1042,6 +1086,7 @@ export default function Home() {
                 reviewCount: (w.reviewCount || 0) + 1,
                 lastReviewedAt: new Date().toISOString(),
                 nextReview: later(a.correct ? intervals[stage] : 1),
+                updatedAt: new Date().toISOString(),
               }
             : w,
         ),
@@ -2808,7 +2853,13 @@ function WrongBook({
   );
   /** 只更新指定错题的部分信息，例如错误原因或掌握状态。 */
   const update = (id: number, patch: Partial<Wrong>) =>
-    setWrongs(wrongs.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+    setWrongs(
+      wrongs.map((w) =>
+        w.id === id
+          ? { ...w, ...patch, updatedAt: new Date().toISOString() }
+          : w,
+      ),
+    );
   /** 切换掌握状态后立即显示按钮状态和短暂提示，让用户知道操作已保存。 */
   const toggleMastered = (wrong: Wrong) => {
     const mastered = !wrong.mastered;

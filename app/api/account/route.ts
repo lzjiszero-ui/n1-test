@@ -39,10 +39,13 @@ export async function POST(request: Request) {
         FROM wrong_answers WHERE device_id = ?
         ON CONFLICT(device_id, question_id) DO UPDATE SET
          module=excluded.module, question_type=excluded.question_type, chosen=excluded.chosen,
-         reason=excluded.reason, mastered=excluded.mastered, next_review=excluded.next_review,
-         review_stage=excluded.review_stage, review_count=excluded.review_count,
-         last_reviewed_at=excluded.last_reviewed_at, updated_at=excluded.updated_at
-        WHERE excluded.updated_at > wrong_answers.updated_at`)
+         reason=CASE WHEN excluded.updated_at > wrong_answers.updated_at THEN excluded.reason ELSE wrong_answers.reason END,
+         mastered=MAX(wrong_answers.mastered, excluded.mastered),
+         next_review=CASE WHEN excluded.updated_at > wrong_answers.updated_at THEN excluded.next_review ELSE wrong_answers.next_review END,
+         review_stage=MAX(wrong_answers.review_stage, excluded.review_stage),
+         review_count=MAX(wrong_answers.review_count, excluded.review_count),
+         last_reviewed_at=CASE WHEN excluded.updated_at > wrong_answers.updated_at THEN excluded.last_reviewed_at ELSE wrong_answers.last_reviewed_at END,
+         updated_at=MAX(wrong_answers.updated_at, excluded.updated_at)`)
         .bind(target, source),
       db()
         .prepare(`INSERT OR IGNORE INTO attempts
