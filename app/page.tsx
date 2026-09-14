@@ -808,10 +808,22 @@ export default function Home() {
         setWrongs((current) => {
           const currentById = new Map(current.map((wrong) => [wrong.id, wrong]));
           let changed = current.length !== cloudWrongs.length;
+          const cloudIds = new Set(cloudWrongs.map((wrong) => wrong.id));
           const merged = cloudWrongs.map((cloud) => {
             const local = currentById.get(cloud.id);
+            // 手机上传较慢时，云端可能短暂返回操作前的旧记录。
+            // 本地记录时间更新就继续保留它，待保存完成后的下一轮再统一。
+            if (
+              local?.updatedAt &&
+              (!cloud.updatedAt || local.updatedAt > cloud.updatedAt)
+            )
+              return local;
             if (!local || local.updatedAt !== cloud.updatedAt) changed = true;
             return cloud;
+          });
+          // 新加入错题本但尚未上传完成的题目也不能被一次旧的云端响应删掉。
+          current.forEach((local) => {
+            if (!cloudIds.has(local.id) && local.updatedAt) merged.push(local);
           });
           return changed ? merged : current;
         });
