@@ -216,12 +216,23 @@ const expandNumberedOptions = (items: string[]) => {
   );
   return expanded.length > items.length ? expanded : items;
 };
+/**
+ * “文の組み立て”考的是排好顺序后位于 ★ 处的片段。
+ * 历年错题的 answerRaw 保留了原答案表（例如“1324（★=2）”），
+ * 因此以其中的 ★ 编号为准，避免把完整排序的首项误当成正确选项。
+ */
+const answerFromOriginalStar = (question: Question) => {
+  if (question.type !== '文の組み立て') return question.answer;
+  const star = question.answerRaw?.match(/★\s*=\s*([1-4])/);
+  return star ? Number(star[1]) - 1 : question.answer;
+};
 // 2025 年 12 月整卷是当前四个专项的唯一题库，专项与本试验保持同步。
 const questions: Question[] = (
   officialQuestions202512 as unknown as Question[]
 ).map((question) => ({
   ...question,
   options: expandNumberedOptions(question.options),
+  answer: answerFromOriginalStar(question),
 }));
 
 // 原始错题是用户的个人学习资产，只供错题本恢复和展示，不混入专项训练题库。
@@ -235,6 +246,7 @@ const originalWrongQuestionBank: Question[] = (
     ...question,
     prompt: question.prompt || question.options[0],
     options: expandNumberedOptions(rawOptions),
+    answer: answerFromOriginalStar(question),
     targetSec: question.targetSec || 60,
   };
 });
