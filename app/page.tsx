@@ -9,6 +9,9 @@ import {
   Check,
   ChevronRight,
   Clock3,
+  Download,
+  ExternalLink,
+  FileText,
   Flame,
   Headphones,
   LayoutDashboard,
@@ -17,7 +20,6 @@ import {
   MessageCircle,
   NotebookPen,
   Pencil,
-  Printer,
   Play,
   Plus,
   RotateCcw,
@@ -43,6 +45,12 @@ import {
 import { Input } from '@/components/ui/input';
 import officialQuestions202512 from '@/lib/questions-2025-12.json';
 import originalWrongQuestions from '@/lib/imported-wrongs.json';
+import {
+  jlptAnswerSheetUrl,
+  jlptPdfPeriods,
+  jlptPdfs,
+  jlptPdfUrl,
+} from '@/lib/jlpt-pdfs';
 
 type Module = '文字・語彙' | '文法' | '読解' | '聴解';
 type PracticeTrack = Module | '過去問演習';
@@ -2266,7 +2274,7 @@ function PracticeTrackTabs({
   );
 }
 
-/** 历年真题训练：随机六题或整套真题都在同一页面作答，再统一判分。 */
+/** 历年真题训练：本试验模式阅读原始 PDF，随机模式继续使用六题练习。 */
 function PastExamTraining({
   activeTrack,
   onChooseTrack,
@@ -2276,7 +2284,7 @@ function PastExamTraining({
   onChooseTrack: (track: PracticeTrack) => void;
   onSubmit: (attempt: Attempt) => void;
 }) {
-  const periods = useMemo(
+  const questionPeriods = useMemo(
     () =>
       [
         ...new Set(
@@ -2293,8 +2301,9 @@ function PastExamTraining({
       }),
     [],
   );
-  const [period, setPeriod] = useState(periods[0] || '');
+  const [period, setPeriod] = useState(jlptPdfPeriods[0] || '');
   const [examMode, setExamMode] = useState<'random' | 'full'>('full');
+  const [activePdfFilename, setActivePdfFilename] = useState('');
   const [seed, setSeed] = useState(() => Date.now());
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -2324,7 +2333,13 @@ function PastExamTraining({
         .slice(0, 6),
     [fullPaper, seed],
   );
-  const paper = examMode === 'random' ? randomPaper : fullPaper;
+  const paper = randomPaper;
+  const periodPdfs = jlptPdfs.filter((pdf) => pdf.period === period);
+  const activePdf =
+    periodPdfs.find((pdf) => pdf.filename === activePdfFilename) ||
+    periodPdfs[0];
+  const availablePeriods =
+    examMode === 'full' ? jlptPdfPeriods : questionPeriods;
   const answeredCount = paper.filter(
     (question) => answers[question.id] !== undefined,
   ).length;
@@ -2339,6 +2354,7 @@ function PastExamTraining({
   ) => {
     setPeriod(nextPeriod);
     setExamMode(nextMode);
+    setActivePdfFilename('');
     setSeed(Date.now());
     setAnswers({});
     setSubmitted(false);
@@ -2350,8 +2366,7 @@ function PastExamTraining({
    * 没有作答的题用 -1 记录，因此会自然计为错误并进入后续复习统计。
    */
   const submitPaper = () => {
-    const canSubmit =
-      examMode === 'full' ? answeredCount === paper.length : answeredCount >= 1;
+    const canSubmit = answeredCount >= 1;
     if (!canSubmit || submitted) return;
     const secondsPerQuestion = Math.max(
       1,
@@ -2375,7 +2390,7 @@ function PastExamTraining({
         <div>
           <span className="kicker">专项训练</span>
           <h1>過去問演習</h1>
-          <p>按考试年月练习已整理的 N1 真题，题干已去除页眉、页脚和水印。</p>
+          <p>本試験モード按年月阅读原始试卷；随机练习仍以 6 题为一组。</p>
         </div>
         <div className="live-time">
           <Clock3 size={18} /> {period || '暂无真题'}
@@ -2394,7 +2409,7 @@ function PastExamTraining({
             value={period}
             onChange={(event) => restart(event.target.value, examMode)}
           >
-            {periods.map((item) => (
+            {availablePeriods.map((item) => (
               <option key={item}>{item}</option>
             ))}
           </select>
@@ -2403,34 +2418,91 @@ function PastExamTraining({
           <b>训练模式</b>
           <button
             className={examMode === 'full' ? 'active' : ''}
-            onClick={() => restart(period, 'full')}
+            onClick={() =>
+              restart(
+                jlptPdfPeriods.includes(period) ? period : jlptPdfPeriods[0],
+                'full',
+              )
+            }
           >
-            本試験モード <small>完成整卷后统一判分</small>
+            本試験モード <small>查看原始 PDF 试卷</small>
           </button>
           <button
             className={examMode === 'random' ? 'active' : ''}
-            onClick={() => restart(period, 'random')}
+            onClick={() =>
+              restart(
+                questionPeriods.includes(period) ? period : questionPeriods[0],
+                'random',
+              )
+            }
           >
             ランダム練習 <small>随机 6 题，至少答 1 题后确认</small>
           </button>
         </div>
-        {examMode === 'full' && (
-          <button
-            className="regenerate print-paper-button"
-            onClick={() => window.print()}
-            title="打开打印窗口后可选择“另存为 PDF”"
-          >
-            <Printer size={15} /> 下载本卷 PDF
+        {examMode === 'random' && (
+          <button className="regenerate" onClick={() => restart()}>
+            <RotateCcw size={15} /> 重新开始
           </button>
         )}
-        <button className="regenerate" onClick={() => restart()}>
-          <RotateCcw size={15} /> 重新开始
-        </button>
       </section>
 
-      {!paper.length ? (
+      {examMode === 'full' ? (
+        activePdf ? (
+          <section className="original-pdf-paper">
+            <header>
+              <div>
+                <span>日本語能力試験 N1</span>
+                <h2>{period} · {activePdf.label}</h2>
+                <p>来自 input/jlpt 的原始 PDF，内容与页面均未改动。</p>
+              </div>
+              <div className="pdf-actions">
+                <a href={jlptPdfUrl(activePdf.filename)} target="_blank" rel="noreferrer">
+                  <ExternalLink size={16} /> 新窗口打开
+                </a>
+                <a href={jlptPdfUrl(activePdf.filename)} download>
+                  <Download size={16} /> 下载原文件
+                </a>
+              </div>
+            </header>
+
+            {periodPdfs.length > 1 && (
+              <div className="pdf-document-tabs" aria-label={`${period} PDF 资料`}>
+                {periodPdfs.map((pdf) => (
+                  <button
+                    key={pdf.filename}
+                    className={pdf.filename === activePdf.filename ? 'active' : ''}
+                    onClick={() => setActivePdfFilename(pdf.filename)}
+                  >
+                    <FileText size={15} /> {pdf.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <iframe
+              className="original-pdf-viewer"
+              src={`${jlptPdfUrl(activePdf.filename)}#view=FitH`}
+              title={`${period} ${activePdf.label}`}
+            />
+            <div className="pdf-mobile-fallback">
+              <p>如果手机浏览器没有显示完整 PDF，请使用下方按钮打开系统阅读器。</p>
+              <a href={jlptPdfUrl(activePdf.filename)} target="_blank" rel="noreferrer">
+                打开完整试卷
+              </a>
+            </div>
+            <footer className="pdf-common-files">
+              <span>通用资料</span>
+              <a href={jlptAnswerSheetUrl} target="_blank" rel="noreferrer">
+                <FileText size={15} /> N1 答题卡
+              </a>
+            </footer>
+          </section>
+        ) : (
+          <Empty text="该年月暂无 PDF" sub="请选择其他考试年月。" />
+        )
+      ) : !paper.length ? (
         <Empty text="该年月暂无可练题目" sub="请选择其他考试年月。" />
-      ) : examMode === 'random' ? (
+      ) : (
         <div className="full-paper random-paper">
           <header>
             <span>ランダム練習</span>
@@ -2486,64 +2558,6 @@ function PastExamTraining({
                   onClick={submitPaper}
                 >
                   确认 6 道题答案
-                </button>
-              </>
-            )}
-          </footer>
-        </div>
-      ) : (
-        <div className="full-paper">
-          <header>
-            <span>日本語能力試験 N1</span>
-            <h2>{period} 過去問題</h2>
-            <p>
-              全 {paper.length} 問 · 已作答 {answeredCount} 問
-            </p>
-          </header>
-          {paper.map((question, questionIndex) => (
-            <ExamQuestionCard
-              key={question.id}
-              question={question}
-              ordinal={questionIndex + 1}
-              chosen={answers[question.id]}
-              showAnswer={submitted}
-              showSharedMaterial={shouldShowSharedMaterial(
-                paper,
-                questionIndex,
-              )}
-              onChoose={(choice) =>
-                !submitted &&
-                setAnswers((currentAnswers) => ({
-                  ...currentAnswers,
-                  [question.id]: choice,
-                }))
-              }
-            />
-          ))}
-          <footer className="exam-submit-bar">
-            {submitted ? (
-              <div className="exam-result">
-                <b>
-                  {correctCount} / {paper.length}
-                </b>
-                <span>本次正确题数</span>
-                <button className="solid" onClick={() => restart()}>
-                  再做一次
-                </button>
-              </div>
-            ) : (
-              <>
-                <p>
-                  {answeredCount === paper.length
-                    ? '全部题目已完成，可以交卷查看答案。'
-                    : `还剩 ${paper.length - answeredCount} 题，全部完成后才能查看答案。`}
-                </p>
-                <button
-                  className="solid"
-                  disabled={answeredCount !== paper.length}
-                  onClick={submitPaper}
-                >
-                  提交整卷并查看答案
                 </button>
               </>
             )}

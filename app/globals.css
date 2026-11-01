@@ -1538,7 +1538,7 @@ button {
 }
 .exam-setup {
   display: grid;
-  grid-template-columns: minmax(160px, 0.7fr) minmax(430px, 2fr) auto auto;
+  grid-template-columns: minmax(160px, 0.7fr) minmax(430px, 2fr) auto;
   align-items: end;
   gap: 14px;
   margin-bottom: 18px;
@@ -1735,6 +1735,113 @@ button {
   border-color: #3e8c6e;
   background: #edf7f2;
   color: var(--green);
+}
+.original-pdf-paper {
+  max-width: 1120px;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 14px 36px #20362d0d;
+}
+.original-pdf-paper > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--line);
+}
+.original-pdf-paper > header span,
+.pdf-common-files > span {
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.original-pdf-paper > header h2 {
+  margin: 5px 0 3px;
+  font-family: var(--font-study);
+  font-size: 21px;
+}
+.original-pdf-paper > header p,
+.pdf-mobile-fallback p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.pdf-actions,
+.pdf-document-tabs,
+.pdf-common-files {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.pdf-actions a,
+.pdf-common-files a,
+.pdf-mobile-fallback a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
+}
+.pdf-actions a:hover,
+.pdf-common-files a:hover,
+.pdf-mobile-fallback a:hover {
+  border-color: #3e8c6e;
+  background: #edf7f2;
+  color: var(--green);
+}
+.pdf-document-tabs {
+  flex-wrap: wrap;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--line);
+  background: #f8faf9;
+}
+.pdf-document-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font-family: var(--font-study);
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.pdf-document-tabs button.active {
+  border-color: #3e8c6e;
+  background: #e5f4ec;
+  color: var(--green);
+}
+.original-pdf-viewer {
+  display: block;
+  width: 100%;
+  height: 78vh;
+  min-height: 720px;
+  border: 0;
+  background: #e8ecea;
+}
+.pdf-mobile-fallback {
+  display: none;
+}
+.pdf-common-files {
+  justify-content: space-between;
+  padding: 14px 22px;
+  border-top: 1px solid var(--line);
 }
 .exam-question-card,
 .full-paper {
@@ -2941,10 +3048,22 @@ button {
 :root[data-theme='dark'] .exam-mode-switch button,
 :root[data-theme='dark'] .exam-question-card,
 :root[data-theme='dark'] .full-paper,
+:root[data-theme='dark'] .original-pdf-paper,
+:root[data-theme='dark'] .pdf-document-tabs button,
 :root[data-theme='dark'] .wrong-filters button,
 :root[data-theme='dark'] .wrong-real select {
   background: #202b26;
   color: var(--ink);
+}
+:root[data-theme='dark'] .pdf-document-tabs {
+  background: #19221e;
+}
+:root[data-theme='dark'] .pdf-document-tabs button.active,
+:root[data-theme='dark'] .pdf-actions a:hover,
+:root[data-theme='dark'] .pdf-common-files a:hover,
+:root[data-theme='dark'] .pdf-mobile-fallback a:hover {
+  background: #293b33;
+  color: #bcebd5;
 }
 :root[data-theme='dark'] .account-button {
   border-color: #456b5b;
@@ -3610,6 +3729,36 @@ button {
   }
   .full-paper {
     padding: 28px 17px 22px;
+  }
+  .original-pdf-paper > header {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 17px;
+  }
+  .pdf-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .pdf-document-tabs {
+    padding: 11px 17px;
+  }
+  .original-pdf-viewer {
+    height: 68vh;
+    min-height: 520px;
+  }
+  .pdf-mobile-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 17px;
+    border-top: 1px solid var(--line);
+  }
+  .pdf-mobile-fallback a {
+    flex: 0 0 auto;
+  }
+  .pdf-common-files {
+    padding: 14px 17px;
   }
   .full-paper > .exam-question-card {
     padding: 24px 0;
