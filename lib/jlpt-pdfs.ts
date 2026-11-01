@@ -43,7 +43,10 @@ export const jlptPdfs: JlptPdf[] = [
 
 export const jlptPdfPeriods = [...new Set(jlptPdfs.map((pdf) => pdf.period))];
 
+const jlptPdfRepositoryBase =
+  'https://raw.githubusercontent.com/lzjiszero-ui/n1-test/main/assets/jlpt';
+
 export const jlptPdfUrl = (filename: string) =>
-  `/jlpt/${encodeURIComponent(filename)}`;
+  `${jlptPdfRepositoryBase}/${encodeURIComponent(filename)}`;
 
 export const jlptAnswerSheetUrl = jlptPdfUrl('N1答题卡.pdf');
